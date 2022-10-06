@@ -1,3 +1,6 @@
+#ifndef _METODOS_H_
+#define _METODOS_H_
+
 #include "Arduino.h"
 #include "Preferences.h"
 #include <Wire.h>
@@ -9,47 +12,53 @@
 #include <ArduinoJson.h>
 
 // pines
-#define VOLTAJE 35    // Voltaje de la batería
+#define VOLTAJE 35 // Voltaje de la batería
 #define ONOFF 26   // Control de apagado 1=encendido 0=apagado
 #define RXD2 16    // RX para el lector de barras
 #define TXD2 17    // TX para el lector de barras
 #define INT_PIN 5  // INT del touch del display
 #define RST_PIN 27 // Reset del touch del display
 // pines display
-#define TFT_SCK 18
-#define TFT_MOSI 23
-#define TFT_MISO 19
-#define TFT_CS 15
-#define TFT_DC 2
-#define TFT_RESET 4
-#define TFT_TIPO 5
+#define display_SCK 18
+#define display_MOSI 23
+#define display_MISO 19
+#define display_CS 15
+#define display_DC 2
+#define display_RESET 4
+#define display_TIPO 5
 // fin pines display
 // fin pines
 
 // constantes
 #define FIRM_VERSION 2 // Versión del firmware actualmente instalado. Debe ser un número entero
 
-// modos
-#define PANTALLA_1 1 // Estado inicial despues del encendido o reset.
-// fin modos
+// estados
+#define INICIO 0     // Estado inicial despues del encendido o reset.
+#define PANTALLA_1 1 // Pantalla inicial con menú 1.
+#define APAGANDO 100 // Se presionó el botón de apagar y está esperando confirmación
+#define PANTALLA_2 2 // Pantalla de menú ubicaciones
+#define PANTALLA_3 3 // Pantalla de menú apu/ventas/código del producto
+// fin estados
 
 // fin constantes
 
 // Crear instancias y variables
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
-DynamicJsonDocument doc(2048);
+DynamicJsonDocument doc(4096);
 // StaticJsonDocument<1024> doc;
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
 String visor = "";
-Arduino_ESP32SPI bus = Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, TFT_MISO); // objeto que maneja la conexión SPI con el display
-Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, TFT_RESET, 0, false);     // objeto que maneja el display ILI9488
+Arduino_ESP32SPI bus = Arduino_ESP32SPI(display_DC, display_CS, display_SCK, display_MOSI, display_MISO); // objeto que maneja la conexión SPI con el display
+Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, display_RESET, 0, false);                     // objeto que maneja el display ILI9488
 // byte modo = 0;
 String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
 byte estado = 0; // estado en el que se encuentra el recolector de datos
+int codigo = 0;  // código del producto leido por el escaner
+int tiempo_encendido = 0;
 // fin Crear instancias y variables
 
 // declaración de funciones ---------------------------------------------------
@@ -62,10 +71,9 @@ void leerEscaner();
 String getStringPartByNr(String data, char separator, int index);
 String requiereServidor(String c);
 void ejecutaComandos(JsonArray arr);
-void logowifi(int posx, int posy);
-void logowifioff(int posxoff, int posyoff);
-void teclaApagado(u16_t posx, u16_t posy);
-void bateria(int porciento);
+void teclaApagado(int posx = 45, int posy = 422);
+void panFondo(); // pantalla de fondo general
+void apagando(); // pantalla de verificación de apagado
 
 // fin declaración de funciones -----------------------------------------------
 
@@ -82,7 +90,8 @@ void handleTouch(int8_t contacts, GTPoint *points)
         {
             // Serial.printf("C%d: %d %d \n", points[i].trackId, 320 - points[i].x, 480 - points[i].y);
 
-            int numero = tocoPantalla(320 - points[i].x, 480 - points[i].y);
+            // int numero = tocoPantalla(320 - points[i].x, 480 - points[i].y);
+            int numero = tocoPantalla(points[i].x, points[i].y);
             if (numero != -1)
             {
                 teclado(numero);
@@ -127,19 +136,42 @@ void touchStart()
 /***************************************************************************************/
 void teclado(int tecla)
 {
-    Serial.print(tecla);
-
-    if (tecla == 12) // apagado
+    Serial.print("tecla: ");
+    Serial.println(tecla);
+    Serial.print("estado: ");
+    Serial.println(estado);
+    switch (estado)
     {
-        Serial.println("apagando");
-        digitalWrite(ONOFF, LOW); // apagar
-    }
-    else
-    {
+    case APAGANDO:
+        if (tecla == 3) // apagado
+        {
+            Serial.println("apagando");
+            digitalWrite(ONOFF, LOW); // apagar
+        }
+        else
+        {
+            estado = INICIO;
+            display.fillScreen(BLACK);
+            panFondo();
+            teclaApagado();
+            requiereServidor("0&tecla=-1");
+        }
 
-        String tocado = "0&tecla=";
-        Serial.println(tocado + tecla);
-        requiereServidor(tocado + tecla);
+        break;
+
+    default:
+        if (tecla == 12) // tecla de apagado
+        {
+            apagando();
+        }
+        else
+        {
+
+            String tocado = "0&tecla=";
+            Serial.println(tocado + tecla);
+            requiereServidor(tocado + tecla);
+        }
+        break;
     }
 }
 
@@ -172,19 +204,18 @@ bool conectarWiFi()
         display.println("FALTAN LAS");
         display.println("CREDENCIALES");
         display.println("DE RED");
-        // logowifioff(290, 15);
         ok = false;
         // Leer los datos provenientes del escaner si están disponibles
         while (Serial2.available())
         {
             leerEscaner();
         }
+        touch.loop();
     }
     else
     {
         // Conectarse
         display.fillScreen(BLACK);
-        logowifioff(290, 15);
         byte intentos = 0;
         WiFi.mode(WIFI_STA);
         Serial.println(ssid.c_str());
@@ -201,9 +232,11 @@ bool conectarWiFi()
         display.print("A ");
         display.setTextColor(YELLOW);
         display.println(ssid);
+        teclaApagado(45, 422);
 
         while ((WiFi.status() != WL_CONNECTED) and (intentos < 5))
         {
+            touch.loop();
             delay(1000);
             intentos += 1;
         }
@@ -212,7 +245,9 @@ bool conectarWiFi()
         {
             ok = true;
             display.fillScreen(BLACK);
-            logowifi(290, 15);
+            teclaApagado();
+            estado = INICIO;
+            requiereServidor("0&tecla=-1");
             Serial.println();
             Serial.println(WiFi.localIP());
             Serial.println("leyendo codigo");
@@ -222,7 +257,9 @@ bool conectarWiFi()
             ok = false;
             Serial.print("Error, no es posible conectarse al wifi ");
             Serial.println(ssid.c_str());
+            touch.loop();
             delay(3000);
+            touch.loop();
             // guardar motivo del reset (_4) en preferences
             preferences.begin("parametros", false);
             preferences.putString("reset", "_4");
@@ -266,13 +303,9 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
     char v = 4;
 
     int16_t d = (ancho - 2 * x - (botx - 1) * s) / botx; // ancho del botón
-    Serial.print("ancho del boton ");
-    Serial.println(d);
-    x = (ancho - d * botx - s * (botx - 1)) / 2; // distancia desde el margen izquierdo
+    x = (ancho - d * botx - s * (botx - 1)) / 2;         // distancia desde el margen izquierdo
 
     int16_t h = (alto - x - y - (boty - 1) * v) / boty; // alto del botón
-    Serial.print("alto del boton ");
-    Serial.println(h);
 
     for (size_t i = 0; i < botx; i++)
     {
@@ -300,6 +333,7 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
 /***************************************************************************************/
 int tocoPantalla(uint16_t x, uint16_t y)
 {
+    tiempo_encendido = esp_timer_get_time()/1000000;
     int numero = -1;
 
     // primera fila
@@ -603,7 +637,7 @@ String requiereServidor(String c)
         // agregar el número de intento en el requerimiento
         Serial.println("requiriendo al servidor");
 
-        String servi = "http://192.168.101.64/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado;
+        String servi = "http://192.168.101.64/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -696,13 +730,23 @@ void ejecutaComandos(JsonArray arr)
             {
                 display.setFont(u8g2_font_inb33_mf);
             }
-            /*
             else if (tipografia == 4)
             {
-                display.setFont(u8g2_font_iconquadpix_m_all);
+                display.setFont(u8g2_font_6x10_mf);
+            }
+            else if (tipografia == 5)
+            {
+                display.setFont(u8g2_font_6x12_mf);
+            }
+            else if (tipografia == 6)
+            {
+                display.setFont(u8g2_font_t0_11_mf);
+            }
+            else if (tipografia == 7)
+            {
+                display.setFont(u8g2_font_10x20_mf);
             }
             break;
-            */
 
         case 4:
             display.setTextSize(arr[i][1]);
@@ -729,66 +773,21 @@ void ejecutaComandos(JsonArray arr)
             estado = arr[i][1];
             break;
 
+        case 10:
+            texto = arr[i][1];
+            display.println(texto);
+            break;
+
+        case 11: // código del producto leido por el escaner
+            codigo = arr[i][1];
+            // display.println(codigo);
+            break;
+
         default:
             break;
         }
     }
-    teclaApagado(45, 422);
-}
-
-/***************************************************************************************/
-/*!
-    @brief   genera el logo de wifi activo
-    @param   posx coordenada x donde se ubica
-    @param   posy coordenada y donde se ubica
-*/
-/***************************************************************************************/
-void logowifi(int posx, int posy)
-{
-    display.fillRect(posx - 8, posy - 16, 25, 19, BLACK);
-    display.drawArc(posx, posy - 3, 9, 9, 220, 320, WHITE);
-    display.drawArc(posx, posy, 8, 8, 230, 310, WHITE);
-    display.drawArc(posx, posy + 3, 8, 8, 240, 300, WHITE);
-    display.fillCircle(posx, posy, 2, WHITE);
-    // número de versión de firmware
-    display.setFont(u8g2_font_mozart_nbp_tn);
-    display.setTextSize(1);
-    display.setCursor(posx + 15, posy - 5);
-    display.setTextColor(RED);
-    display.print(FIRM_VERSION);
-    // npumero de version de spiffs
-    // extraer de preferences la versión actual de archivos SPIFFS
-    /*
-    preferences.begin("parametros", false);
-    int spiffs_version = preferences.getInt("fs_ver", 0);
-    preferences.end();
-    display.setFont(u8g2_font_mozart_nbp_tn);
-    display.setTextSize(1);
-    display.setCursor(posx + 15, posy + 5);
-    display.setTextColor(MAGENTA);
-    display.print(spiffs_version);
-    */
-}
-
-/***************************************************************************************/
-/*!
-    @brief   genera el logo de wifi sin señal
-    @param   posxoff coordenada x donde se ubica
-    @param   posyoff coordenada y donde se ubica
-*/
-/***************************************************************************************/
-void logowifioff(int posxoff, int posyoff)
-{
-    display.fillRect(posxoff - 8, posyoff - 16, 25, 19, BLACK);
-
-    display.drawArc(posxoff, posyoff - 3, 9, 9, 220, 320, WHITE);
-    display.drawArc(posxoff, posyoff, 8, 8, 230, 285, WHITE);
-    display.drawArc(posxoff, posyoff + 3, 8, 8, 240, 300, WHITE);
-    display.fillCircle(posxoff, posyoff, 2, WHITE);
-
-    display.fillCircle(posxoff + 10, posyoff - 10, 6, RED);
-    display.drawLine(posxoff + 7, posyoff - 10, posxoff + 13, posyoff - 10, WHITE);
-    display.drawLine(posxoff + 7, posyoff - 9, posxoff + 13, posyoff - 9, WHITE);
+    teclaApagado();
 }
 
 /***************************************************************************************/
@@ -798,22 +797,202 @@ void logowifioff(int posxoff, int posyoff)
     @param   posy coordenada y donde se ubica
 */
 /***************************************************************************************/
-void teclaApagado(u16_t posx, u16_t posy)
+void teclaApagado(int posx, int posy)
 {
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, RED);
     display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
     display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
 }
 
-void bateria(int porciento)
+void panFondo()
 {
-    display.fillRect(5,0,80,25,YELLOW);
-    display.setFont(u8g2_font_inb16_mf);
+    // logo wifi
+    int posx = 275;
+    int posy = 15;
+    if ((WiFi.status() != WL_CONNECTED))
+    {
+
+        // logo wifi desconectado
+        display.fillRect(posx - 8, posy - 16, 25, 19, BLUE);
+        display.drawArc(posx, posy - 3, 9, 9, 220, 320, WHITE);
+        display.drawArc(posx, posy, 8, 8, 230, 285, WHITE);
+        display.drawArc(posx, posy + 3, 8, 8, 240, 300, WHITE);
+        display.fillCircle(posx, posy, 2, WHITE);
+
+        display.fillCircle(posx + 10, posy - 10, 6, RED);
+        display.drawLine(posx + 7, posy - 10, posx + 13, posy - 10, WHITE);
+        display.drawLine(posx + 7, posy - 9, posx + 13, posy - 9, WHITE);
+
+        // RECONECTAR wifi
+        conectarWiFi();
+    }
+    else
+    {
+        // logo wifi conectado
+        display.fillRect(posx - 8, posy - 16, 25, 19, BLACK);
+        display.drawArc(posx, posy - 3, 9, 9, 220, 320, WHITE);
+        display.drawArc(posx, posy, 8, 8, 230, 310, WHITE);
+        display.drawArc(posx, posy + 3, 8, 8, 240, 300, WHITE);
+        display.fillCircle(posx, posy, 2, WHITE);
+    }
+
+    // número de versión de firmware
+    display.fillRect(295, 0, 24, 19, BLACK);
+    display.setFont(u8g2_font_mozart_nbp_tf);
     display.setTextSize(1);
-    display.setCursor(10, 20);
+    display.setCursor(295, 8);
     display.setTextColor(MAGENTA);
+    display.print("FIRM");
+    display.setCursor(295, 18);
+    display.print(FIRM_VERSION);
+
+    // nivel de señal wifi RSSI
+    display.fillRect(240, 0, 24, 19, BLACK);
+    display.setFont(u8g2_font_mozart_nbp_tf);
+    display.setTextSize(1);
+    display.setCursor(240, 8);
+    display.setTextColor(WHITE);
+    display.print("RSSI");
+    display.setCursor(240, 18);
+    display.print(WiFi.RSSI());
+
+    // medir voltaje de la batería
+    int sumVolts = 0;
+    for (size_t a = 0; a < 10; a++)
+    {
+        sumVolts += analogReadMilliVolts(VOLTAJE);
+    }
+    int volt2 = round(1.754 * sumVolts / 100);
+    int color = WHITE;
+    int porciento = 0;
+    if (volt2 > 408)
+    {
+        porciento = 100;
+        color = GREEN;
+    }
+    else if (volt2 > 400)
+    {
+        porciento = 90;
+        color = GREEN;
+    }
+    else if (volt2 > 393)
+    {
+        porciento = 80;
+        color = GREEN;
+    }
+    else if (volt2 > 387)
+    {
+        porciento = 70;
+        color = YELLOW;
+    }
+    else if (volt2 > 382)
+    {
+        porciento = 60;
+        color = YELLOW;
+    }
+    else if (volt2 > 379)
+    {
+        porciento = 50;
+        color = YELLOW;
+    }
+    else if (volt2 > 377)
+    {
+        porciento = 40;
+        color = YELLOW;
+    }
+    else if (volt2 > 373)
+    {
+        porciento = 30;
+        color = RED;
+    }
+    else if (volt2 > 370)
+    {
+        porciento = 20;
+        color = RED;
+    }
+    else if (volt2 > 368)
+    {
+        porciento = 15;
+        color = RED;
+    }
+    else if (volt2 > 350)
+    {
+        porciento = 10;
+        color = RED;
+    }
+    else if (volt2 > 250)
+    {
+        porciento = 5;
+        color = RED;
+    }
+    else
+    {
+        porciento = 0;
+        color = RED;
+    }
+
+    display.fillRoundRect(5, 0, 80, 22, 5, color);
+    display.fillRoundRect(85, 6, 5, 9, 0, color);
+    display.setFont(u8g2_font_inb16_mf);
+    display.setCursor(10, 19);
+    display.setTextSize(1);
+    display.setTextColor(BLACK);
     display.print(porciento);
     display.print(" %");
 
-
+    // verifica el tiempo desde el encendido
+    display.fillRoundRect(150, 0, 70, 25, 2, GREENYELLOW);
+    display.setFont(u8g2_font_10x20_mf);
+    display.setTextColor(BLUE);
+    display.setCursor(155, 18);
+    display.print(esp_timer_get_time() / 1000000 - tiempo_encendido);
+    /*
+    if ((esp_timer_get_time() / 1000000 - tiempo_encendido) > 120)
+    {
+        Serial.println("apagando");
+        //digitalWrite(ONOFF, LOW); // apagar
+        // Serial.println("tiempo encendido");
+        // tiempo_encendido = esp_timer_get_time()/1000000;
+    }
+    */
 }
+
+void apagando()
+{
+    // limpiar fondo
+    display.fillRect(0, 30, 319, 479, BLACK);
+
+    int posx = 276;
+    int posy = 134;
+    display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, RED);
+    display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
+    display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
+
+    display.setFont(u8g2_font_inb33_mf);
+    display.setTextSize(1);
+    display.setTextColor(RED);
+    display.setCursor(30, 155);
+    display.print("APAGAR");
+
+    // tecla mantener encendido
+    posx = 45;
+    posy = 422;
+    display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, BLUE);
+    display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
+    display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
+
+    display.setFont(u8g2_font_inb21_mf);
+    display.setTextSize(1);
+    display.setTextColor(BLUE);
+    display.setCursor(120, 420);
+    display.println("MANTENER");
+    display.setCursor(112, 450);
+    display.print("ENCENDIDO");
+
+    estado = APAGANDO;
+
+    //    Serial.println("apagando");
+    //    digitalWrite(ONOFF, LOW); // apagar
+}
+
+#endif

@@ -1,11 +1,21 @@
+
 #include "metodos.h"
 
-void setup()
+// -------------------------------------------------------------------------
+// Setup
+// -------------------------------------------------------------------------
+void setup(void)
 {
   // inicializar pin onoff con fuente encendida
   pinMode(ONOFF, OUTPUT);
   digitalWrite(ONOFF, HIGH);
   delay(200);
+  
+  //Inicializar display
+  tft.init();
+  tft.setRotation(2);
+  tft.fillScreen(TFT_BLACK);
+  teclaApagado(45, 422);
 
   // iniciar la conexión serie con el lector de barras y el terminal de programación
   Serial.begin(115200);
@@ -21,18 +31,12 @@ void setup()
   touch.setHandler(handleTouch);
   touchStart();
 
-  // inicializa el display
-  display.begin();
-  display.setRotation(2); // 0, 1, 2, 3 "1"
-  teclaApagado(45, 422);
-
   conectarWiFi();
-  estado = PANTALLA_1;
-  // requiereServidor("0");
-  poneNumeros();
-  
 }
 
+// -------------------------------------------------------------------------
+// Main loop
+// -------------------------------------------------------------------------
 int volts[10];
 int i = 0;
 int vuelta = 0;
@@ -57,66 +61,8 @@ void loop()
         volt1 += volts[a];
       }
       int volt2 = round(1.754 * volt1 / 100);
-      int porciento = 0;
-      if (volt2 > 408)
-      {
-        porciento = 100;
-      }
-      else if (volt2 > 400)
-      {
-        porciento = 90;
-      }
-      else if (volt2 > 393)
-      {
-        porciento = 80;
-      }
-      else if (volt2 > 387)
-      {
-        porciento = 70;
-      }
-      else if (volt2 > 382)
-      {
-        porciento = 60;
-      }
-      else if (volt2 > 379)
-      {
-        porciento = 50;
-      }
-      else if (volt2 > 377)
-      {
-        porciento = 40;
-      }
-      else if (volt2 > 373)
-      {
-        porciento = 30;
-      }
-      else if (volt2 > 370)
-      {
-        porciento = 20;
-      }
-      else if (volt2 > 368)
-      {
-        porciento = 15;
-      }
-      else if (volt2 > 350)
-      {
-        porciento = 10;
-      }
-      else if (volt2 > 250)
-      {
-        porciento = 5;
-      }
-      else
-      {
-        porciento = 0;
-      }
-
-      Serial.print("voltaje: ");
-      Serial.print(volt2);
-      Serial.print("_____ ");
-      Serial.print(porciento);
-      Serial.println("%");
-      bateria(porciento);
+      
+      bateria(volt2);
     }
   }
   ++vuelta;
