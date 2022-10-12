@@ -1,21 +1,14 @@
-
 #include "metodos.h"
 
-// -------------------------------------------------------------------------
-// Setup
-// -------------------------------------------------------------------------
-void setup(void)
+void setup()
 {
   // inicializar pin onoff con fuente encendida
   pinMode(ONOFF, OUTPUT);
   digitalWrite(ONOFF, HIGH);
   delay(200);
-  
-  //Inicializar display
-  tft.init();
-  tft.setRotation(2);
-  tft.fillScreen(TFT_BLACK);
-  teclaApagado(45, 422);
+
+  // inicializa contador de tiempo encendido
+  tiempo_encendido = esp_timer_get_time()/1000000;
 
   // iniciar la conexión serie con el lector de barras y el terminal de programación
   Serial.begin(115200);
@@ -29,41 +22,28 @@ void setup(void)
 
   // inicio del sensor tactil capacitivo
   touch.setHandler(handleTouch);
+  
   touchStart();
 
+  // inicializa el display
+  display.begin();
+  display.setRotation(0); // 0, 1, 2, 3 "1"
+  teclaApagado(45, 422);
+
   conectarWiFi();
+  panFondo();
+  configEscaner();  
+  verificaFirmware();
 }
 
-// -------------------------------------------------------------------------
-// Main loop
-// -------------------------------------------------------------------------
-int volts[10];
-int i = 0;
 int vuelta = 0;
 void loop()
 {
-  if (vuelta == 100)
+  if (vuelta == 500)
   {
     vuelta = 0;
 
-    // medir voltaje de la batería
-    if (i < 10)
-    {
-      volts[i] = analogReadMilliVolts(VOLTAJE);
-      ++i;
-    }
-    else
-    {
-      i = 0;
-      int volt1 = 0;
-      for (size_t a = 0; a < 10; a++)
-      {
-        volt1 += volts[a];
-      }
-      int volt2 = round(1.754 * volt1 / 100);
-      
-      bateria(volt2);
-    }
+    panFondo();
   }
   ++vuelta;
 

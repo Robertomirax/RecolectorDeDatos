@@ -31,8 +31,9 @@ void setup()
   teclaApagado(45, 422);
 
   conectarWiFi();
-  //estado = INICIO;
   panFondo();
+  configEscaner();  
+  verificaFirmware();
 }
 
 int vuelta = 0;

@@ -1,0 +1,17 @@
+MATERIALES PARA RECOLECTOR DE DATOS
+
+-Display
+-Plaqueta ESP32
+-Plaqueta cargador 03962A
+-Plaqueta LATCH
+-Bateria
+
+COMPONENTES
+
+-Resistencias 2 de 10k, 1 de 68k, 1 de 51k, 1 de 470
+-Transistor AO3401
+-Transistor AO3400
+-Boton de encendido
+-Escaner GM67
+-Conector cargador 
+-Cargador 5V

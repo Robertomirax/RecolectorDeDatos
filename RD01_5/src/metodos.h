@@ -1,6 +1,16 @@
 #ifndef _METODOS_H_
 #define _METODOS_H_
 
+/*****************************************************************************************
+ * Para actualizar el firmware:
+ * Colocar el número correspondiente a la nueva versión de firmware en FIRM_VERSION
+ * Compilar el programa y subir al servidor el archivo firmware.bin con el nombre
+ * firm(version).bin ejemplo: firm25.bin que se encuentra en
+ * .pio\build\esp32doit-devkit-v1/firmware.bin
+ * Modificar el archivo firm.json del servidor, cambiando el valor de version por la nueva versión
+ * El firmware se actualizará automáticamente al encender la terminal
+ *****************************************************************************************/
+
 #include "Arduino.h"
 #include "Preferences.h"
 #include <Wire.h>
@@ -10,6 +20,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "esp_ota_ops.h"
+#include "esp_https_ota.h"
+#include "certificado.h"
 
 // pines
 #define VOLTAJE 35 // Voltaje de la batería
@@ -30,7 +43,10 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 2 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define FIRM_VERSION 5 // Versión del firmware actualmente instalado. Debe ser un número entero
+
+String servidor = "192.168.101.64"; // newfac de pruebas
+// String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -59,9 +75,14 @@ byte letra{0};
 byte estado = 0; // estado en el que se encuentra el recolector de datos
 int codigo = 0;  // código del producto leido por el escaner
 int tiempo_encendido = 0;
-// fin Crear instancias y variables
+bool escaner = true;             // escaner leyendo o no
+char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
+// const char *sucursal{0}; // sucursal en la que se encuentra el recolector de datos
+//  fin Crear instancias y variables
 
 // declaración de funciones ---------------------------------------------------
+void verificaFirmware();
+void actualizaFirmware(uint16_t version);
 void handleTouch(int8_t contacts, GTPoint *points);
 void touchStart();
 void teclado(int tecla);
@@ -74,8 +95,129 @@ void ejecutaComandos(JsonArray arr);
 void teclaApagado(int posx = 45, int posy = 422);
 void panFondo(); // pantalla de fondo general
 void apagando(); // pantalla de verificación de apagado
-
+void escanerOn();
+void escanerOff();
+void configEscaner();
+bool enviaComando(byte com[], int largo);
+void teclaListo(int posx, int posy);
+void teclaBasura(int posx, int posy);
 // fin declaración de funciones -----------------------------------------------
+
+// comprueba si hay actualizaciones del firmware y las instala
+void verificaFirmware()
+{
+    // leer el archivo json del servidor donde indica cual es la última versión del firmware
+    // si es distinta de la instalada, la actuliza con la rutina actualizarFirmware()
+
+    int intento = 0;
+    while (intento < 10) // hace 10 intentos de conectarse al servidor
+    {
+        HTTPClient http;
+        ++intento;
+        String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
+
+        String servi = "http://" + servidor + "/newfac/RD01/firm.json?r=" + rand;
+        Serial.println(servi);
+
+        http.begin(servi);         // La url
+        int httpCode = http.GET(); // Hacer el requerimiento
+
+        if (httpCode == 200)
+        {
+            String payload = http.getString();
+            Serial.println(payload);
+
+            // decodifica el json --------------------------------------
+            const char *respuesta = payload.c_str();
+            deserializeJson(doc, F(respuesta));
+            JsonObject obj = doc.as<JsonObject>();
+
+            // uint8_t borrar = 0;
+            uint16_t version = obj[F("version")];
+            // uint16_t spiffs = obj[F("spiffs")];
+            // borrar = obj[F("borrar")];
+            //  fin de decodificación del json--------------------------
+            //  extraer de preferences la versión actual de archivos SPIFFS
+            // preferences.begin("parametros", false);
+            // int spiffs_version = preferences.getInt("fs_ver", 0);
+            // preferences.end();
+
+            if (version > FIRM_VERSION) // Si hay una versión con un número mas grande del firmware en el servidor actualizamos
+            {
+                actualizaFirmware(version);
+            }
+            else
+            {
+                Serial.println("El firmware actual es la ultima version");
+                http.end(); // cierra la conexión con el servidor
+            }
+            break;
+        }
+        else // el servidor respondió con error
+        {
+            Serial.print("error de respuesta del servidor ");
+            Serial.println(httpCode);
+        }
+        http.end(); // cierra la conexión con el servidor
+    }
+    if (intento == 10)
+    {
+        Serial.println("se intento 10 veces la conexion al servidor");
+        // guardar motivo del reset (_3) en preferences
+        preferences.begin("parametros", false);
+        preferences.putString("reset", "_3");
+        preferences.end();
+        esp_restart(); // Resetea el esp32
+    }
+}
+
+/**************************************************************************************/
+/*!
+    @brief   actualiza el firmware
+    @param   version número de la versión a actualizar
+*/
+/*************************************************************************************/
+void actualizaFirmware(uint16_t version)
+{
+    // pantalla actualizando firmware
+    // limpiar fondo
+    display.fillRect(0, 30, 319, 479, BLACK);
+
+    display.setFont(u8g2_font_inb30_mf);
+    display.setTextSize(1);
+    display.setTextColor(RED);
+    display.setCursor(0, 155);
+    display.println("ACTUALIZANDO");
+    display.print("FIRMWARE");
+
+    int azar = random(1, 100000);
+
+    String servi = "http://" + servidor + "/newfac/RD01/firm" + version + ".bin?v=" + azar;
+
+    const char *servi2 = servi.c_str();
+
+    esp_http_client_config_t ota_client_config = {
+        .url = servi2,
+        .cert_pem = root_ca,
+    };
+    Serial.println(ota_client_config.url);
+
+    esp_err_t ret = esp_https_ota(&ota_client_config); // Actualiza el firmware
+    if (ret == ESP_OK)
+    {
+        printf("ACTUALIZACION OTA OK, reseteando...\n");
+        configEscaner();
+        // guardar motivo del reset (_2) en preferences
+        preferences.begin("parametros", false);
+        preferences.putString("reset", "_2");
+        preferences.end();
+        esp_restart(); // Resetea el esp32
+    }
+    else
+    {
+        printf("FALLO en la actualizacion OTA ...\n");
+    }
+}
 
 // rutina que se ejecuta al tocar la pantalla
 void handleTouch(int8_t contacts, GTPoint *points)
@@ -140,6 +282,7 @@ void teclado(int tecla)
     Serial.println(tecla);
     Serial.print("estado: ");
     Serial.println(estado);
+
     switch (estado)
     {
     case APAGANDO:
@@ -188,8 +331,8 @@ bool conectarWiFi()
     ssid = preferences.getString("ssid", "");
     password = preferences.getString("password", "");
     preferences.end();
-    ssid = "ASUS";
-    password = "rdepmgdm";
+    // ssid = "ASUS";
+    // password = "rdepmgdm";
 
     if (ssid == "" || password == "")
     {
@@ -236,8 +379,19 @@ bool conectarWiFi()
 
         while ((WiFi.status() != WL_CONNECTED) and (intentos < 5))
         {
-            touch.loop();
-            delay(1000);
+            escanerOn();
+            for (size_t i = 0; i < 500; i++)
+            {
+                // ver si se tocó el display
+                touch.loop();
+                delay(10);
+
+                // Leer los datos provenientes del escaner si están disponibles
+                while (Serial2.available())
+                {
+                    leerEscaner();
+                }
+            }
             intentos += 1;
         }
 
@@ -333,7 +487,7 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
 /***************************************************************************************/
 int tocoPantalla(uint16_t x, uint16_t y)
 {
-    tiempo_encendido = esp_timer_get_time()/1000000;
+    tiempo_encendido = esp_timer_get_time() / 1000000;
     int numero = -1;
 
     // primera fila
@@ -510,7 +664,7 @@ void leerEscaner()
         Serial.println(palabra);
 
         // deshabilita el escaner
-        // escanerOff();
+        escanerOff();
 
         // mensaje de espera en pantalla
         /*
@@ -540,7 +694,6 @@ void leerEscaner()
 
         else
         {
-            // modo = LEYENDO;
             //  mandar el código del producto a la web
             if ((WiFi.status() == WL_CONNECTED)) // Verificar el estado de la conexión
             {
@@ -627,7 +780,6 @@ String requiereServidor(String c)
 {
     int httpCode = 0;
 
-    // HTTPClient http;
     int intento = 0;
     while (intento < 10) // hace 10 intentos de conectarse al servidor
     {
@@ -637,7 +789,7 @@ String requiereServidor(String c)
         // agregar el número de intento en el requerimiento
         Serial.println("requiriendo al servidor");
 
-        String servi = "http://192.168.101.64/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -652,8 +804,6 @@ String requiereServidor(String c)
             intento = 10;
 
             // decodifica el json --------------------------------------
-            // const char *respuesta = payload.c_str();
-
             DeserializationError error = deserializeJson(doc, respuesta);
 
             if (error)
@@ -672,7 +822,19 @@ String requiereServidor(String c)
         {
             Serial.print("Error en el requerimiento HTTPs ");
             Serial.println(httpCode);
-            delay(500);
+            escanerOn();
+            for (size_t i = 0; i < 500; i++)
+            {
+                // ver si se tocó el display
+                touch.loop();
+                delay(10);
+
+                // Leer los datos provenientes del escaner si están disponibles
+                while (Serial2.available())
+                {
+                    leerEscaner();
+                }
+            }
         }
     }
     // mostrar en pantalla el código de respuesta del servidor
@@ -700,6 +862,7 @@ void ejecutaComandos(JsonArray arr)
 
     const char *texto = "";
     int8_t tipografia = 0;
+    int8_t habi = 0;
 
     for (size_t i = 0; i < count; i++)
     {
@@ -780,7 +943,35 @@ void ejecutaComandos(JsonArray arr)
 
         case 11: // código del producto leido por el escaner
             codigo = arr[i][1];
-            // display.println(codigo);
+            break;
+
+        case 12: // habilitación escaner 0 = deshabilita 1 = habilita
+
+            habi = arr[i][1];
+            Serial.println(habi);
+
+            if (habi == 1)
+            {
+                escanerOn();
+            }
+            else
+            {
+                escanerOff();
+            }
+            break;
+
+        case 13:
+            teclaListo(arr[i][1], arr[i][2]);
+            break;
+
+        case 14:
+            teclaBasura(arr[i][1], arr[i][2]);
+            break;
+
+        case 15: // sucursal en la que se encuentra el terminal
+            texto = arr[i][1];
+            strcpy(sucursalapu, texto);
+
             break;
 
         default:
@@ -788,6 +979,8 @@ void ejecutaComandos(JsonArray arr)
         }
     }
     teclaApagado();
+    Serial.print("sucursalapu ");
+    Serial.println(sucursalapu);
 }
 
 /***************************************************************************************/
@@ -802,6 +995,36 @@ void teclaApagado(int posx, int posy)
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, RED);
     display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
     display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
+}
+
+void teclaListo(int posx, int posy)
+{
+
+    display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, GREEN);
+    display.fillArc(posx + 80, posy + 40, 87, 80, 190, 230, WHITE);
+    display.fillArc(posx - 85, posy + 25, 85, 78, 340, 0, WHITE);
+    display.fillArc(posx - 1, posy + 5, 30, 25, 340, 290, WHITE);
+}
+/*
+        [\"" . fillRoundRect . "\",\"8\",\"284\",\"73\",\"92\",\"10\",\"" . RED . "\"],
+        [\"" . fillRoundRect . "\",\"23\",\"300\",\"43\",\"60\",\"8\",\"" . WHITE . "\"],
+        [\"" . fillRoundRect . "\",\"20\",\"300\",\"48\",\"10\",\"0\",\"" . RED . "\"],
+        [\"" . fillRoundRect . "\",\"15\",\"302\",\"58\",\"5\",\"2\",\"" . WHITE . "\"],
+        [\"" . fillRoundRect . "\",\"40\",\"298\",\"10\",\"5\",\"2\",\"" . WHITE . "\"],
+        [\"" . fillRoundRect . "\",\"30\",\"318\",\"5\",\"35\",\"2\",\"" . RED . "\"],
+        [\"" . fillRoundRect . "\",\"55\",\"318\",\"5\",\"35\",\"2\",\"" . RED . "\"],
+*/
+
+void teclaBasura(int posx, int posy)
+{
+
+    display.fillRoundRect(posx, posy, 73, 92, 10, RED);
+    display.fillRoundRect(posx + 15, posy + 16, 43, 60, 8, WHITE);
+    display.fillRoundRect(posx + 12, posy + 16, 48, 10, 0, RED);
+    display.fillRoundRect(posx + 7, posy + 18, 58, 5, 2, WHITE);
+    display.fillRoundRect(posx + 32, posy + 14, 10, 5, 2, WHITE);
+    display.fillRoundRect(posx + 22, posy + 34, 5, 35, 2, RED);
+    display.fillRoundRect(posx + 47, posy + 34, 5, 35, 2, RED);
 }
 
 void panFondo()
@@ -993,6 +1216,134 @@ void apagando()
 
     //    Serial.println("apagando");
     //    digitalWrite(ONOFF, LOW); // apagar
+}
+
+// habilita el escaner, pone la variable pública escaner en true
+void escanerOn()
+{
+
+    byte buf88[] = {0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F}; // SCAN_ENABLE
+    byte largo8 = sizeof(buf88);
+    enviaComando(buf88, largo8);
+    escaner = true;
+}
+
+// Deshabilita el escaner y pone la variable pública escaner en false
+void escanerOff()
+{
+
+    byte buf6[] = {0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E}; // SCAN_DISABLE
+    byte largo = sizeof(buf6);
+    enviaComando(buf6, largo);
+    escaner = false;
+}
+
+// Inicializa el escaner
+void configEscaner()
+{
+    Serial.println("configurando escaner");
+
+    int largo = 0;
+
+    // reset del escaner
+    Serial.println("reset 04 FA 04 00 FE FE");
+    byte buf9[] = {0x04, 0xFA, 0x04, 0x00, 0xFE, 0xFE};
+    largo = sizeof(buf9);
+    Serial.println(enviaComando(buf9, largo));
+    Serial.println();
+    delay(1000);
+
+    Serial.println("NO Allows scan configuration");
+    byte buf[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0xEC, 0x00, 0xFE, 0x3B}; // NO Allows scan configuration bar code
+    largo = sizeof(buf);                                                 // Serial2.write(buf,sizeof(buf)); // manda al escaner el comando
+    Serial.println(enviaComando(buf, largo));
+    Serial.println();
+
+    Serial.println("Automatic induction");
+    byte buf4[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x09, 0xFE, 0x94}; // Automatic induction
+    largo = sizeof(buf4);
+    Serial.println(enviaComando(buf4, largo));
+    Serial.println();
+
+    Serial.println("Retorno de carro 13 despues del codigo leido");
+    byte buf3[] = {0x08, 0xC6, 0x04, 0x08, 0x00, 0xF2, 0x05, 0x02, 0xFE, 0x2D}; // envia retorno de carro 13 después de leer el código
+    largo = sizeof(buf3);
+    Serial.println(enviaComando(buf3, largo));
+    Serial.println();
+
+    Serial.println("SCAN_ENABLE");
+    byte buf8[] = {0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F}; // SCAN_ENABLE
+    largo = sizeof(buf8);
+    Serial.println(enviaComando(buf8, largo));
+    Serial.println();
+}
+
+/**************************************************************************************/
+/*!
+    @brief   Envia comando al escaner y espera el ACK
+    @param   com array que se enviará al escaner
+    @param   largo longitud del array com
+    @return  true si hubo ACK, false si no
+*/
+/*************************************************************************************/
+bool enviaComando(byte com[], int largo)
+{
+    byte buf[] = {0x00}; // Wake up
+    Serial2.write(buf, sizeof(buf));
+    delay(50);
+
+    byte intentos = 0;
+    bool ack = false;
+    String recibido = "";
+
+    while (intentos < 5 && !ack)
+    {
+        Serial2.write(com, largo);            // envía el comando al escaner
+        uint32_t start = xTaskGetTickCount(); // registra el inicio del tiempo para ver si se produce timeout
+
+        while (!Serial2.available() && ((xTaskGetTickCount() - start) < 500)) // espera que llegue la respuesta del escaner
+        {
+        }
+
+        if ((xTaskGetTickCount() - start) < 500) // si no hubo timeout
+        {
+            recibido = "";
+            while (Serial2.available() && ((xTaskGetTickCount() - start) < 500)) // lee el comando recibido
+            {
+                letra = Serial2.read();
+                recibido += letra;
+            }
+
+            if ((xTaskGetTickCount() - start) < 500) // si no hubo timeout
+            {
+                Serial.println(recibido);
+
+                if (recibido == "42080025544" || recibido.substring(0, 10) == "8716400801") // llegó ack o versión
+                {
+                    ack = true;
+                }
+                else
+                {
+                    Serial.println("ACK MAL");
+                    ack = false;
+                    intentos += 1;
+                }
+            }
+            else // hubo timeout
+            {
+                Serial.println("Timeout 2");
+                intentos += 1;
+                ack = false;
+            }
+        }
+        else // hubo timeout
+        {
+            Serial.println("Timeout 1");
+            intentos += 1;
+            ack = false;
+        }
+    }
+    return ack;
 }
 
 #endif
