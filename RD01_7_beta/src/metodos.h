@@ -43,7 +43,8 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 4 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define FIRM_VERSION 7 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 240 // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 String servidor = "192.168.101.64"; // newfac de pruebas
 // String servidor = "192.168.2.3"; // newfac
@@ -377,8 +378,9 @@ bool conectarWiFi()
         display.println(ssid);
         teclaApagado(45, 422);
 
-        while ((WiFi.status() != WL_CONNECTED) and (intentos < 5))
+        while ((WiFi.status() != WL_CONNECTED) and (intentos < 10))
         {
+            //panFondo();
             escanerOn();
             for (size_t i = 0; i < 500; i++)
             {
@@ -404,7 +406,7 @@ bool conectarWiFi()
             requiereServidor("0&tecla=-1");
             Serial.println();
             Serial.println(WiFi.localIP());
-            Serial.println("leyendo codigo");
+            Serial.println("Conectado");
         }
         else
         {
@@ -418,7 +420,9 @@ bool conectarWiFi()
             preferences.begin("parametros", false);
             preferences.putString("reset", "_4");
             preferences.end();
-            esp_restart(); // Resetea el esp32
+            //esp_restart(); // Resetea el esp32
+            digitalWrite(ONOFF, LOW); // apagar
+
         }
     }
     return ok;
@@ -781,7 +785,7 @@ String requiereServidor(String c)
     int httpCode = 0;
 
     int intento = 0;
-    while (intento < 10) // hace 10 intentos de conectarse al servidor
+    while (intento < 1) // hace 1 intentos de conectarse al servidor
     {
         HTTPClient http;
         ++intento;
@@ -789,7 +793,7 @@ String requiereServidor(String c)
         // agregar el número de intento en el requerimiento
         Serial.println("requiriendo al servidor");
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -1169,15 +1173,14 @@ void panFondo()
     display.setTextColor(BLUE);
     display.setCursor(155, 18);
     display.print(esp_timer_get_time() / 1000000 - tiempo_encendido);
-    /*
-    if ((esp_timer_get_time() / 1000000 - tiempo_encendido) > 120)
+    
+    if ((esp_timer_get_time() / 1000000 - tiempo_encendido) > APAGADO)
     {
-        Serial.println("apagando");
-        //digitalWrite(ONOFF, LOW); // apagar
-        // Serial.println("tiempo encendido");
-        // tiempo_encendido = esp_timer_get_time()/1000000;
+        Serial.println("apagando por tiempo inactivo");
+        digitalWrite(ONOFF, LOW); // apagar
+        
     }
-    */
+    
 }
 
 void apagando()
