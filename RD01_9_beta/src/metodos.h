@@ -43,25 +43,22 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 7 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 240 // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define FIRM_VERSION 8 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-String servidor = "192.168.101.64"; // newfac de pruebas
-// String servidor = "192.168.2.3"; // newfac
+//String servidor = "192.168.101.64"; // newfac de pruebas
+String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
-#define PANTALLA_1 1 // Pantalla inicial con menú 1.
 #define APAGANDO 100 // Se presionó el botón de apagar y está esperando confirmación
-#define PANTALLA_2 2 // Pantalla de menú ubicaciones
-#define PANTALLA_3 3 // Pantalla de menú apu/ventas/código del producto
 // fin estados
 
 // fin constantes
 
 // Crear instancias y variables
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
-DynamicJsonDocument doc(4096);
+DynamicJsonDocument doc(8192);
 // StaticJsonDocument<1024> doc;
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
@@ -78,7 +75,8 @@ int codigo = 0;  // código del producto leido por el escaner
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
-// const char *sucursal{0}; // sucursal en la que se encuentra el recolector de datos
+int voltaje = 0;                 // voltaje de la batería
+
 //  fin Crear instancias y variables
 
 // declaración de funciones ---------------------------------------------------
@@ -380,7 +378,7 @@ bool conectarWiFi()
 
         while ((WiFi.status() != WL_CONNECTED) and (intentos < 10))
         {
-            //panFondo();
+            // panFondo();
             escanerOn();
             for (size_t i = 0; i < 500; i++)
             {
@@ -420,9 +418,8 @@ bool conectarWiFi()
             preferences.begin("parametros", false);
             preferences.putString("reset", "_4");
             preferences.end();
-            //esp_restart(); // Resetea el esp32
+            // esp_restart(); // Resetea el esp32
             digitalWrite(ONOFF, LOW); // apagar
-
         }
     }
     return ok;
@@ -793,7 +790,7 @@ String requiereServidor(String c)
         // agregar el número de intento en el requerimiento
         Serial.println("requiriendo al servidor");
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -975,7 +972,14 @@ void ejecutaComandos(JsonArray arr)
         case 15: // sucursal en la que se encuentra el terminal
             texto = arr[i][1];
             strcpy(sucursalapu, texto);
+            break;
 
+        case 16: // dibuja arco lleno
+            display.fillArc(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5], arr[i][6], arr[i][7]);
+            break;
+
+        case 17: // dibuja linea recta
+            display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
             break;
 
         default:
@@ -1009,15 +1013,6 @@ void teclaListo(int posx, int posy)
     display.fillArc(posx - 85, posy + 25, 85, 78, 340, 0, WHITE);
     display.fillArc(posx - 1, posy + 5, 30, 25, 340, 290, WHITE);
 }
-/*
-        [\"" . fillRoundRect . "\",\"8\",\"284\",\"73\",\"92\",\"10\",\"" . RED . "\"],
-        [\"" . fillRoundRect . "\",\"23\",\"300\",\"43\",\"60\",\"8\",\"" . WHITE . "\"],
-        [\"" . fillRoundRect . "\",\"20\",\"300\",\"48\",\"10\",\"0\",\"" . RED . "\"],
-        [\"" . fillRoundRect . "\",\"15\",\"302\",\"58\",\"5\",\"2\",\"" . WHITE . "\"],
-        [\"" . fillRoundRect . "\",\"40\",\"298\",\"10\",\"5\",\"2\",\"" . WHITE . "\"],
-        [\"" . fillRoundRect . "\",\"30\",\"318\",\"5\",\"35\",\"2\",\"" . RED . "\"],
-        [\"" . fillRoundRect . "\",\"55\",\"318\",\"5\",\"35\",\"2\",\"" . RED . "\"],
-*/
 
 void teclaBasura(int posx, int posy)
 {
@@ -1090,6 +1085,7 @@ void panFondo()
         sumVolts += analogReadMilliVolts(VOLTAJE);
     }
     int volt2 = round(1.754 * sumVolts / 100);
+    voltaje = volt2;
     int color = WHITE;
     int porciento = 0;
     if (volt2 > 408)
@@ -1173,14 +1169,12 @@ void panFondo()
     display.setTextColor(BLUE);
     display.setCursor(155, 18);
     display.print(esp_timer_get_time() / 1000000 - tiempo_encendido);
-    
+
     if ((esp_timer_get_time() / 1000000 - tiempo_encendido) > APAGADO)
     {
         Serial.println("apagando por tiempo inactivo");
         digitalWrite(ONOFF, LOW); // apagar
-        
     }
-    
 }
 
 void apagando()
@@ -1255,13 +1249,13 @@ void configEscaner()
     Serial.println(enviaComando(buf9, largo));
     Serial.println();
     delay(1000);
-
-    Serial.println("NO Allows scan configuration");
-    byte buf[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0xEC, 0x00, 0xFE, 0x3B}; // NO Allows scan configuration bar code
-    largo = sizeof(buf);                                                 // Serial2.write(buf,sizeof(buf)); // manda al escaner el comando
-    Serial.println(enviaComando(buf, largo));
-    Serial.println();
-
+    /*
+        Serial.println("NO Allows scan configuration");
+        byte buf[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0xEC, 0x00, 0xFE, 0x3B}; // NO Allows scan configuration bar code
+        largo = sizeof(buf);                                                 // Serial2.write(buf,sizeof(buf)); // manda al escaner el comando
+        Serial.println(enviaComando(buf, largo));
+        Serial.println();
+    */
     Serial.println("Automatic induction");
     byte buf4[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0x8A, 0x09, 0xFE, 0x94}; // Automatic induction
     largo = sizeof(buf4);
