@@ -137,15 +137,7 @@ void verificaFirmware()
             deserializeJson(doc, F(respuesta));
             JsonObject obj = doc.as<JsonObject>();
 
-            // uint8_t borrar = 0;
             uint16_t version = obj[F("version")];
-            // uint16_t spiffs = obj[F("spiffs")];
-            // borrar = obj[F("borrar")];
-            //  fin de decodificación del json--------------------------
-            //  extraer de preferences la versión actual de archivos SPIFFS
-            // preferences.begin("parametros", false);
-            // int spiffs_version = preferences.getInt("fs_ver", 0);
-            // preferences.end();
 
             if (version > FIRM_VERSION) // Si hay una versión con un número mas grande del firmware en el servidor actualizamos
             {
@@ -670,15 +662,6 @@ void leerEscaner()
         // deshabilita el escaner
         escanerOff();
 
-        // mensaje de espera en pantalla
-        /*
-        display.fillScreen(BLACK);
-        display.setCursor(30, 140);
-        display.setFont(u8g2_font_maniac_te);
-        display.setTextSize(1);
-        display.setTextColor(YELLOW);
-        display.println("ESPERA POR FAVOR");
-*/
         //  comprobar si es un comando el código leido
 
         if (getStringPartByNr(palabra, ';', 0) == "WIFI:T:nopass")
@@ -786,7 +769,6 @@ String requiereServidor(String c)
             String respuesta = http.getString();
             Serial.println(respuesta);
             http.end(); // libera los recursos
-            // intento = 10;
 
             // decodifica el json --------------------------------------
             DeserializationError error = deserializeJson(doc, respuesta);
@@ -973,8 +955,6 @@ void ejecutaComandos(JsonArray arr)
         }
     }
     teclaApagado();
-    Serial.print("sucursalapu ");
-    Serial.println(sucursalapu);
 }
 
 /***************************************************************************************/
@@ -1196,9 +1176,6 @@ void apagando()
     display.print("ENCENDIDO");
 
     estado = APAGANDO;
-
-    //    Serial.println("apagando");
-    //    digitalWrite(ONOFF, LOW); // apagar
 }
 
 // habilita el escaner, pone la variable pública escaner en true
@@ -1234,7 +1211,7 @@ void configEscaner()
     largo = sizeof(buf9);
     Serial.println(enviaComando(buf9, largo));
     Serial.println();
-    delay(1000);
+    delay(500);
     /*
         Serial.println("NO Allows scan configuration");
         byte buf[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0xEC, 0x00, 0xFE, 0x3B}; // NO Allows scan configuration bar code
