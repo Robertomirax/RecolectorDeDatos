@@ -65,13 +65,11 @@ String servidor = "192.168.101.64"; // newfac de pruebas
 // Crear instancias y variables
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
 DynamicJsonDocument doc(8192);
-// StaticJsonDocument<1024> doc;
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
 String visor = "";
 Arduino_ESP32SPI bus = Arduino_ESP32SPI(display_DC, display_CS, display_SCK, display_MOSI, display_MISO); // objeto que maneja la conexión SPI con el display
 Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, display_RESET, 0, false);                     // objeto que maneja el display ILI9488
-// byte modo = 0;
 String ssid{""};
 String password{""};
 String palabra{""};
