@@ -235,9 +235,7 @@ void handleTouch(int8_t contacts, GTPoint *points)
         // Serial.printf("Contacts: %d\n", contacts);
         for (uint8_t i = 0; i < contacts; i++)
         {
-            // Serial.printf("C%d: %d %d \n", points[i].trackId, 320 - points[i].x, 480 - points[i].y);
 
-            // int numero = tocoPantalla(320 - points[i].x, 480 - points[i].y);
             int numero = tocoPantalla(points[i].x, points[i].y);
             if (numero != -1)
             {
