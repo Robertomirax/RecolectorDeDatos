@@ -2,6 +2,12 @@
 #define _METODOS_H_
 
 /*****************************************************************************************
+ * Antes de publicar verificar:
+ * 1- Versión del firmware
+ * 2- servidor
+ * 3- tiempo de apagado
+ *
+ *
  * Para actualizar el firmware:
  * Colocar el número correspondiente a la nueva versión de firmware en FIRM_VERSION
  * Compilar el programa y subir al servidor el archivo firmware.bin con el nombre
@@ -43,11 +49,11 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 8 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define FIRM_VERSION 9 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 36000  // 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-//String servidor = "192.168.101.64"; // newfac de pruebas
-String servidor = "192.168.2.3"; // newfac
+String servidor = "192.168.101.64"; // newfac de pruebas
+// String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -376,7 +382,7 @@ bool conectarWiFi()
         display.println(ssid);
         teclaApagado(45, 422);
 
-        while ((WiFi.status() != WL_CONNECTED) and (intentos < 10))
+        while ((WiFi.status() != WL_CONNECTED) and (intentos < 5))
         {
             // panFondo();
             escanerOn();
@@ -412,8 +418,7 @@ bool conectarWiFi()
             Serial.print("Error, no es posible conectarse al wifi ");
             Serial.println(ssid.c_str());
             touch.loop();
-            delay(3000);
-            touch.loop();
+            delay(10);
             // guardar motivo del reset (_4) en preferences
             preferences.begin("parametros", false);
             preferences.putString("reset", "_4");
@@ -696,30 +701,8 @@ void leerEscaner()
         else
         {
             //  mandar el código del producto a la web
-            if ((WiFi.status() == WL_CONNECTED)) // Verificar el estado de la conexión
-            {
-                requiereServidor(palabra);
 
-                // fin de decodificación del json--------------------------
-
-                // ejecución de comandos
-
-                // verificaFirmware(); // verifica la actualización del firmware
-
-                // pantalla_1();
-            }
-            else
-            {
-                display.fillScreen(BLACK);
-                display.setCursor(0, 50);
-                display.setFont(u8g2_font_maniac_te);
-                display.setTextSize(1);
-                display.setTextColor(YELLOW);
-                display.println("No hay conexión");
-                display.println("WiFi");
-
-                conectarWiFi();
-            }
+            requiereServidor(palabra);
 
             palabra = "";
         }
@@ -779,22 +762,25 @@ String getStringPartByNr(String data, char separator, int index)
 /*************************************************************************************/
 String requiereServidor(String c)
 {
+
     int httpCode = 0;
 
     int intento = 0;
-    while (intento < 1) // hace 1 intentos de conectarse al servidor
+    while (intento < 5) // hace 5 intentos de conectarse al servidor
     {
         HTTPClient http;
         ++intento;
         String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
         // agregar el número de intento en el requerimiento
-        Serial.println("requiriendo al servidor");
+        Serial.println("requiriendo al servidor 2: ");
+        Serial.println(intento);
 
         String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
         Serial.println(servi);
+        Serial.print("httpCode: ");
         Serial.println(httpCode);
 
         if (httpCode == 200) // Si el servidor respondió ok
@@ -802,7 +788,7 @@ String requiereServidor(String c)
             String respuesta = http.getString();
             Serial.println(respuesta);
             http.end(); // libera los recursos
-            intento = 10;
+            // intento = 10;
 
             // decodifica el json --------------------------------------
             DeserializationError error = deserializeJson(doc, respuesta);
@@ -823,6 +809,7 @@ String requiereServidor(String c)
         {
             Serial.print("Error en el requerimiento HTTPs ");
             Serial.println(httpCode);
+
             escanerOn();
             for (size_t i = 0; i < 500; i++)
             {
@@ -852,7 +839,8 @@ String requiereServidor(String c)
     preferences.begin("parametros", false);
     preferences.putString("reset", "_1");
     preferences.end();
-    esp_restart(); // Resetea el esp32
+    // esp_restart(); // Resetea el esp32
+    digitalWrite(ONOFF, LOW); // apagar
 }
 
 void ejecutaComandos(JsonArray arr)

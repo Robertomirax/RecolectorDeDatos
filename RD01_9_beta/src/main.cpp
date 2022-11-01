@@ -2,7 +2,7 @@
 
 void setup()
 {
-  // inicializar pin onoff con fuente encendida
+  // inicializar pin on off con fuente encendida
   pinMode(ONOFF, OUTPUT);
   digitalWrite(ONOFF, HIGH);
   delay(200);
