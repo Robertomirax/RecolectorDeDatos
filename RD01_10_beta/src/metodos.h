@@ -44,16 +44,16 @@
 #define display_CS 15
 #define display_DC 2
 #define display_RESET 4
-#define display_TIPO 5
+//#define display_TIPO 5
 // fin pines display
 // fin pines
 
 // constantes
-#define FIRM_VERSION 9 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 36000  // 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define FIRM_VERSION 10 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 3600// 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 String servidor = "192.168.101.64"; // newfac de pruebas
-// String servidor = "192.168.2.3"; // newfac
+//String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -74,8 +74,9 @@ String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
-byte estado = 0; // estado en el que se encuentra el recolector de datos
-int codigo = 0;  // código del producto leido por el escaner
+byte estado = 0;  // estado en el que se encuentra el recolector de datos
+int codigo = 0;   // código del producto leido por el escaner
+int idIndice = 0; // idIndice de la tabla transito_entrepiso
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
@@ -327,6 +328,9 @@ bool conectarWiFi()
     // ssid = "ASUS";
     // password = "rdepmgdm";
 
+    WiFi.useStaticBuffers(true);
+    WiFi.setAutoReconnect(true);
+
     if (ssid == "" || password == "")
     {
         Serial.println("No existen Credenciales WiFi guardadas!");
@@ -370,11 +374,12 @@ bool conectarWiFi()
         display.println(ssid);
         teclaApagado(45, 422);
 
-        while ((WiFi.status() != WL_CONNECTED) and (intentos < 5))
+        do
         {
-            // panFondo();
+            WiFi.reconnect();
+            Serial.println("reconectando");
             escanerOn();
-            for (size_t i = 0; i < 500; i++)
+            for (size_t i = 0; i < 300; i++)
             {
                 // ver si se tocó el display
                 touch.loop();
@@ -387,7 +392,8 @@ bool conectarWiFi()
                 }
             }
             intentos += 1;
-        }
+            
+        } while ((WiFi.status() != WL_CONNECTED) and (intentos < 20));
 
         if ((WiFi.status() == WL_CONNECTED))
         {
@@ -754,7 +760,7 @@ String requiereServidor(String c)
         Serial.println("requiriendo al servidor 2: ");
         Serial.println(intento);
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -819,6 +825,7 @@ String requiereServidor(String c)
     preferences.end();
     // esp_restart(); // Resetea el esp32
     digitalWrite(ONOFF, LOW); // apagar
+    return "0";
 }
 
 void ejecutaComandos(JsonArray arr)
@@ -915,6 +922,7 @@ void ejecutaComandos(JsonArray arr)
         case 12: // habilitación escaner 0 = deshabilita 1 = habilita
 
             habi = arr[i][1];
+            Serial.print("escaner: ");
             Serial.println(habi);
 
             if (habi == 1)
@@ -946,6 +954,14 @@ void ejecutaComandos(JsonArray arr)
 
         case 17: // dibuja linea recta
             display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
+            break;
+/*
+        case 18: // dibuja imagen
+            display.draw16bitBeRGBBitmap(arr[i][1], arr[i][2], image_data_Image, arr[i][4], arr[i][5]);
+            break;
+*/
+        case 19: // idIndice de la tabla transito_entrepiso
+            idIndice = arr[i][1];
             break;
 
         default:
