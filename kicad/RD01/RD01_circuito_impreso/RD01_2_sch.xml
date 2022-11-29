@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<export version="E">
+  <design>
+    <source>D:\googleDrive\RecolectorDeDatos\kicad\RD01\RD01_circuito_impreso\RD01_2_sch.kicad_sch</source>
+    <date>jueves, 24 de noviembre de 2022 16:12:32</date>
+    <tool>Eeschema (6.0.7)</tool>
+    <sheet number="1" name="/" tstamps="/">
+      <title_block>
+        <title/>
+        <company/>
+        <rev/>
+        <date/>
+        <source>RD01_2_sch.kicad_sch</source>
+        <comment number="1" value=""/>
+        <comment number="2" value=""/>
+        <comment number="3" value=""/>
+        <comment number="4" value=""/>
+        <comment number="5" value=""/>
+        <comment number="6" value=""/>
+        <comment number="7" value=""/>
+        <comment number="8" value=""/>
+        <comment number="9" value=""/>
+      </title_block>
+    </sheet>
+  </design>
+  <components>
+    <comp ref="P1">
+      <value>+Vcc</value>
+      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
+      <libsource lib="" part="pad_2x2_2" description=""/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>dc438332-5ad1-40ef-bf49-3f2e30aa2581</tstamps>
+    </comp>
+    <comp ref="P2">
+      <value>esp 26</value>
+      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
+      <libsource lib="" part="pad_2x2_5" description=""/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>3512779d-fb36-45dd-be47-eca68c5f3ced</tstamps>
+    </comp>
+    <comp ref="P3">
+      <value>+Bat</value>
+      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
+      <libsource lib="" part="pad_2x2_1" description=""/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>9533aa51-b2f4-4077-928f-5793755dcd4c</tstamps>
+    </comp>
+    <comp ref="P4">
+      <value>esp 35</value>
+      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
+      <libsource lib="" part="pad_2x2_3" description=""/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>40cc7ca6-7dfa-44f1-b32d-f3bc75886fab</tstamps>
+    </comp>
+    <comp ref="P5">
+      <value>GND</value>
+      <footprint>TestPoint:TestPoint_Pad_2.0x2.0mm</footprint>
+      <libsource lib="" part="pad_2x2_4" description=""/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>a9d1e530-f4dd-48d9-8081-1bf5dce62bd1</tstamps>
+    </comp>
+    <comp ref="Q1">
+      <value>DMG2305UX-7</value>
+      <footprint>Package_TO_SOT_SMD:SOT-23</footprint>
+      <datasheet>https://www.diodes.com/assets/Datasheets/DMG2301L.pdf</datasheet>
+      <libsource lib="Transistor_FET" part="DMG2301L" description="-3A Id, -20V Vds, P-Channel MOSFET, SOT-23"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>bbef19cc-edb6-4442-8906-2f0bdfa1a815</tstamps>
+    </comp>
+    <comp ref="Q2">
+      <value>PN2222A</value>
+      <footprint>Package_TO_SOT_SMD:SOT-23</footprint>
+      <datasheet>https://www.onsemi.com/pub/Collateral/PN2222-D.PDF</datasheet>
+      <libsource lib="Transistor_BJT" part="PN2222A" description="1A Ic, 40V Vce, NPN Transistor, General Purpose Transistor, TO-92"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>389ece3c-b30a-4279-958d-f15ab1258614</tstamps>
+    </comp>
+    <comp ref="R1">
+      <value>10K</value>
+      <footprint>Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder</footprint>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>987ff59d-1431-4876-8dd0-e1f93f84879f</tstamps>
+    </comp>
+    <comp ref="R2">
+      <value>10K</value>
+      <footprint>Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder</footprint>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>0e8e746a-a114-4d86-a09c-eecbb69ca697</tstamps>
+    </comp>
+    <comp ref="R3">
+      <value>470</value>
+      <footprint>Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder</footprint>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>ba17aa1c-fc7f-4158-80d5-cd77355b8848</tstamps>
+    </comp>
+    <comp ref="R4">
+      <value>51K</value>
+      <footprint>Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder</footprint>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>03ebcce4-165c-4329-ab30-0b7930971762</tstamps>
+    </comp>
+    <comp ref="R5">
+      <value>68K</value>
+      <footprint>Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder</footprint>
+      <libsource lib="Device" part="R" description="Resistor"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>7fdf49dd-ea7e-44b9-a466-8a5456c3c78b</tstamps>
+    </comp>
+    <comp ref="SW1">
+      <value>encendido</value>
+      <footprint>Button_Switch_THT:SW_PUSH-12mm</footprint>
+      <libsource lib="Switch" part="SW_Push" description="Push button switch, generic, two pins"/>
+      <property name="Sheetname" value=""/>
+      <property name="Sheetfile" value="RD01_2_sch.kicad_sch"/>
+      <sheetpath names="/" tstamps="/"/>
+      <tstamps>d2671b5f-93cf-4c9b-be56-cec3908e6eee</tstamps>
+    </comp>
+  </components>
+  <libparts>
+    <libpart lib="" part="pad_2x2_1">
+      <fields>
+        <field name="Reference">P6</field>
+        <field name="Value">+Bat</field>
+        <field name="Footprint">TestPoint:TestPoint_Pad_D2.0mm</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="input"/>
+      </pins>
+    </libpart>
+    <libpart lib="" part="pad_2x2_2">
+      <fields>
+        <field name="Reference">P5</field>
+        <field name="Value">+Vcc</field>
+        <field name="Footprint">TestPoint:TestPoint_Pad_D2.0mm</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="input"/>
+      </pins>
+    </libpart>
+    <libpart lib="" part="pad_2x2_3">
+      <fields>
+        <field name="Reference">P1</field>
+        <field name="Value">pad_2x2_3</field>
+        <field name="Footprint">TestPoint:TestPoint_Pad_D2.0mm</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="input"/>
+      </pins>
+    </libpart>
+    <libpart lib="" part="pad_2x2_4">
+      <fields>
+        <field name="Reference">P2</field>
+        <field name="Value">pad_2x2_4</field>
+        <field name="Footprint">TestPoint:TestPoint_Pad_D2.0mm</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="input"/>
+      </pins>
+    </libpart>
+    <libpart lib="" part="pad_2x2_5">
+      <fields>
+        <field name="Reference">P3</field>
+        <field name="Value">pad_2x2_5</field>
+        <field name="Footprint">TestPoint:TestPoint_Pad_D2.0mm</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="input"/>
+      </pins>
+    </libpart>
+    <libpart lib="Device" part="R">
+      <description>Resistor</description>
+      <docs>~</docs>
+      <footprints>
+        <fp>R_*</fp>
+      </footprints>
+      <fields>
+        <field name="Reference">R</field>
+        <field name="Value">R</field>
+        <field name="Datasheet">~</field>
+      </fields>
+      <pins>
+        <pin num="1" name="" type="passive"/>
+        <pin num="2" name="" type="passive"/>
+      </pins>
+    </libpart>
+    <libpart lib="Switch" part="SW_Push">
+      <description>Push button switch, generic, two pins</description>
+      <docs>~</docs>
+      <fields>
+        <field name="Reference">SW</field>
+        <field name="Value">SW_Push</field>
+        <field name="Datasheet">~</field>
+      </fields>
+      <pins>
+        <pin num="1" name="1" type="passive"/>
+        <pin num="2" name="2" type="passive"/>
+      </pins>
+    </libpart>
+    <libpart lib="Transistor_BJT" part="PN2222A">
+      <description>1A Ic, 40V Vce, NPN Transistor, General Purpose Transistor, TO-92</description>
+      <docs>https://www.onsemi.com/pub/Collateral/PN2222-D.PDF</docs>
+      <footprints>
+        <fp>TO?92*</fp>
+      </footprints>
+      <fields>
+        <field name="Reference">Q</field>
+        <field name="Value">PN2222A</field>
+        <field name="Footprint">Package_TO_SOT_THT:TO-92_Inline</field>
+        <field name="Datasheet">https://www.onsemi.com/pub/Collateral/PN2222-D.PDF</field>
+      </fields>
+      <pins>
+        <pin num="1" name="E" type="passive"/>
+        <pin num="2" name="B" type="input"/>
+        <pin num="3" name="C" type="passive"/>
+      </pins>
+    </libpart>
+    <libpart lib="Transistor_FET" part="DMG2301L">
+      <description>-3A Id, -20V Vds, P-Channel MOSFET, SOT-23</description>
+      <docs>https://www.diodes.com/assets/Datasheets/DMG2301L.pdf</docs>
+      <footprints>
+        <fp>SOT?23*</fp>
+      </footprints>
+      <fields>
+        <field name="Reference">Q</field>
+        <field name="Value">DMG2301L</field>
+        <field name="Footprint">Package_TO_SOT_SMD:SOT-23</field>
+        <field name="Datasheet">https://www.diodes.com/assets/Datasheets/DMG2301L.pdf</field>
+      </fields>
+      <pins>
+        <pin num="1" name="G" type="input"/>
+        <pin num="2" name="S" type="passive"/>
+        <pin num="3" name="D" type="passive"/>
+      </pins>
+    </libpart>
+  </libparts>
+  <libraries>
+    <library logical="Device">
+      <uri>C:\Program Files\KiCad\6.0\share\kicad\symbols\/Device.kicad_sym</uri>
+    </library>
+    <library logical="Switch">
+      <uri>C:\Program Files\KiCad\6.0\share\kicad\symbols\/Switch.kicad_sym</uri>
+    </library>
+    <library logical="Transistor_BJT">
+      <uri>C:\Program Files\KiCad\6.0\share\kicad\symbols\/Transistor_BJT.kicad_sym</uri>
+    </library>
+    <library logical="Transistor_FET">
+      <uri>C:\Program Files\KiCad\6.0\share\kicad\symbols\/Transistor_FET.kicad_sym</uri>
+    </library>
+  </libraries>
+  <nets>
+    <net code="1" name="Net-(P4-Pad1)">
+      <node ref="P4" pin="1" pinfunction="1" pintype="input"/>
+      <node ref="R4" pin="2" pintype="passive"/>
+      <node ref="R5" pin="2" pintype="passive"/>
+    </net>
+    <net code="2" name="Net-(Q1-Pad1)">
+      <node ref="Q1" pin="1" pinfunction="G" pintype="input"/>
+      <node ref="Q2" pin="3" pinfunction="C" pintype="passive"/>
+      <node ref="R1" pin="1" pintype="passive"/>
+      <node ref="SW1" pin="2" pinfunction="2" pintype="passive"/>
+    </net>
+    <net code="3" name="Net-(Q1-Pad2)">
+      <node ref="P3" pin="1" pinfunction="1" pintype="input"/>
+      <node ref="Q1" pin="2" pinfunction="S" pintype="passive"/>
+      <node ref="R1" pin="2" pintype="passive"/>
+      <node ref="R4" pin="1" pintype="passive"/>
+    </net>
+    <net code="4" name="Net-(Q1-Pad3)">
+      <node ref="P1" pin="1" pinfunction="1" pintype="input"/>
+      <node ref="Q1" pin="3" pinfunction="D" pintype="passive"/>
+    </net>
+    <net code="5" name="Net-(Q2-Pad1)">
+      <node ref="P5" pin="1" pinfunction="1" pintype="input"/>
+      <node ref="Q2" pin="1" pinfunction="E" pintype="passive"/>
+      <node ref="R2" pin="2" pintype="passive"/>
+      <node ref="R5" pin="1" pintype="passive"/>
+      <node ref="SW1" pin="1" pinfunction="1" pintype="passive"/>
+    </net>
+    <net code="6" name="Net-(Q2-Pad2)">
+      <node ref="Q2" pin="2" pinfunction="B" pintype="input"/>
+      <node ref="R2" pin="1" pintype="passive"/>
+      <node ref="R3" pin="2" pintype="passive"/>
+    </net>
+    <net code="7" name="Net-(R3-Pad1)">
+      <node ref="P2" pin="1" pinfunction="1" pintype="input"/>
+      <node ref="R3" pin="1" pintype="passive"/>
+    </net>
+  </nets>
+</export>

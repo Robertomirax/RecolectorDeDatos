@@ -50,10 +50,10 @@
 
 // constantes
 #define FIRM_VERSION 10 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 3600// 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define APAGADO 3600    // 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 String servidor = "192.168.101.64"; // newfac de pruebas
-//String servidor = "192.168.2.3"; // newfac
+// String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -76,11 +76,13 @@ String palabra{""};
 byte letra{0};
 byte estado = 0;  // estado en el que se encuentra el recolector de datos
 int codigo = 0;   // código del producto leido por el escaner
-int idIndice = 0; // idIndice de la tabla transito_entrepiso
+int idIndice = 0; // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
 int voltaje = 0;                 // voltaje de la batería
+int cantidad = 0;                // cantidad escrita en el teclado numérico
+int maximo_subir = 0;            // cantidad máxima de unidades que se pueden subir al entrepiso en una operación
 
 //  fin Crear instancias y variables
 
@@ -105,6 +107,7 @@ void configEscaner();
 bool enviaComando(byte com[], int largo);
 void teclaListo(int posx, int posy);
 void teclaBasura(int posx, int posy);
+void tecladoNumerico(int aux1, int aux2, int aux3, int aux4);
 // fin declaración de funciones -----------------------------------------------
 
 // comprueba si hay actualizaciones del firmware y las instala
@@ -296,6 +299,82 @@ void teclado(int tecla)
 
         break;
 
+    case 17:                                 // teclado numérico
+        display.setFont(u8g2_font_inb33_mf); // maniac_te);
+        display.setTextColor(YELLOW);
+        display.setCursor(30, 75);
+        display.fillRect(30, 35, 200, 50, BLACK);
+
+        if (tecla == 13 || tecla == 14 || tecla == 15 || tecla == 3) // tecla inicio o listo
+        {
+            String tocado = "&tecla=";
+            Serial.println(cantidad + tocado + tecla);
+            requiereServidor(cantidad + tocado + tecla);
+        }
+        else if (tecla == 7) // tecla de borrado
+        {
+            cantidad = 0;
+            display.print(cantidad);
+        }
+        else
+        {
+            int cantidad2 = cantidad * 10;
+
+            if (tecla == 0) // número 7
+            {
+                cantidad2 += 7;
+            }
+            else if (tecla == 1) // número 8
+            {
+                cantidad2 += 8;
+            }
+            else if (tecla == 2) // número 9
+            {
+                cantidad2 += 9;
+            }
+            else if (tecla == 4) // número 4
+            {
+                cantidad2 += 4;
+            }
+            else if (tecla == 5) // número 5
+            {
+                cantidad2 += 5;
+            }
+            else if (tecla == 6) // número 6
+            {
+                cantidad2 += 6;
+            }
+            else if (tecla == 8) // número 1
+            {
+                cantidad2 += 1;
+            }
+            else if (tecla == 9) // número 2
+            {
+                cantidad2 += 2;
+            }
+            else if (tecla == 10) // número 3
+            {
+                cantidad2 += 3;
+            }
+
+            if (cantidad2 <= maximo_subir)
+            {
+                cantidad = cantidad2;
+                display.print(cantidad);
+            }
+            else
+            {
+                display.print(cantidad);
+            }
+        }
+
+        if (tecla == 12) // tecla de apagado
+        {
+            apagando();
+        }
+
+        break;
+
     default:
         if (tecla == 12) // tecla de apagado
         {
@@ -392,7 +471,7 @@ bool conectarWiFi()
                 }
             }
             intentos += 1;
-            
+
         } while ((WiFi.status() != WL_CONNECTED) and (intentos < 20));
 
         if ((WiFi.status() == WL_CONNECTED))
@@ -592,16 +671,17 @@ void poneNumeros()
 
     // primera fila
     display.setCursor(30, 155);
-    display.print("0");
+    display.print("7");
 
     display.setCursor(107, 155);
-    display.print("1");
+    display.print("8");
 
     display.setCursor(184, 155);
-    display.print("2");
+    display.print("9");
 
-    display.setCursor(261, 155);
-    display.print("3");
+    // display.setCursor(261, 155);
+    // display.print("#");
+    teclaListo(276, 134);
 
     // segunda fila
     display.setCursor(30, 249);
@@ -613,41 +693,42 @@ void poneNumeros()
     display.setCursor(184, 249);
     display.print("6");
 
-    display.setCursor(261, 249);
-    display.print("7");
+    // display.setCursor(261, 249);
+    // display.print("#");
+    teclaBasura(239, 188);
 
     // tercera fila
     display.setCursor(30, 343);
-    display.print("8");
+    display.print("1");
 
     display.setCursor(107, 343);
-    display.print("9");
+    display.print("2");
 
     display.setCursor(184, 343);
-    display.print("A");
+    display.print("3");
 
     display.setCursor(261, 343);
-    display.print("B");
+    display.print("0");
 
     // cuarta fila
     // display.setFont(u8g2_font_inb16_mf);
-    display.setCursor(30, 437);
-    display.setTextColor(WHITE);
-    display.print("C");
+    // display.setCursor(30, 437);
+    // display.setTextColor(WHITE);
+    // display.print("C");
 
     // display.setFont(u8g2_font_inb33_mf);
-    display.setTextColor(YELLOW);
-    display.setCursor(107, 437);
-    display.print("D");
+    // display.setTextColor(YELLOW);
+    // display.setCursor(107, 437);
+    // display.print("0");
 
     // display.setFont(u8g2_font_inb16_mf);
-    display.setTextColor(BLUE);
-    display.setCursor(184, 437);
-    display.print("E");
+    // display.setTextColor(BLUE);
+    // display.setCursor(184, 437);
+    // display.print("#");
 
-    display.setFont(u8g2_font_inb33_mf);
-    display.setCursor(261, 437);
-    display.print("F");
+    // display.setFont(u8g2_font_inb33_mf);
+    // display.setCursor(261, 437);
+    // display.print("#");
 }
 
 /**************************************************************************************/
@@ -784,7 +865,6 @@ String requiereServidor(String c)
             }
 
             JsonArray arr = doc.as<JsonArray>();
-
             ejecutaComandos(arr);
 
             return respuesta;
@@ -935,11 +1015,11 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 13:
+        case 13: // dibuja la tecla listo
             teclaListo(arr[i][1], arr[i][2]);
             break;
 
-        case 14:
+        case 14: // dibuja la tecla basura
             teclaBasura(arr[i][1], arr[i][2]);
             break;
 
@@ -955,11 +1035,11 @@ void ejecutaComandos(JsonArray arr)
         case 17: // dibuja linea recta
             display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
             break;
-/*
-        case 18: // dibuja imagen
-            display.draw16bitBeRGBBitmap(arr[i][1], arr[i][2], image_data_Image, arr[i][4], arr[i][5]);
+
+        case 18: // tecladoNumerico
+            tecladoNumerico(arr[i][1], arr[i][2], arr[i][3], arr[i][4]);
             break;
-*/
+
         case 19: // idIndice de la tabla transito_entrepiso
             idIndice = arr[i][1];
             break;
@@ -1064,7 +1144,7 @@ void panFondo()
     {
         sumVolts += analogReadMilliVolts(VOLTAJE);
     }
-    int volt2 = round(1.754 * sumVolts / 100);
+    int volt2 = round(1.49 * sumVolts / 100); // round(1.754 * sumVolts / 100);
     voltaje = volt2;
     int color = WHITE;
     int porciento = 0;
@@ -1086,52 +1166,60 @@ void panFondo()
     else if (volt2 > 387)
     {
         porciento = 70;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 382)
     {
         porciento = 60;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 379)
     {
         porciento = 50;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 377)
     {
         porciento = 40;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 373)
     {
         porciento = 30;
-        color = RED;
+        color = GREEN;
     }
     else if (volt2 > 370)
     {
         porciento = 20;
-        color = RED;
+        color = YELLOW;
     }
     else if (volt2 > 368)
     {
         porciento = 15;
-        color = RED;
+        color = YELLOW;
     }
     else if (volt2 > 350)
     {
         porciento = 10;
-        color = RED;
+        color = YELLOW;
     }
-    else if (volt2 > 250)
+    else if (volt2 > 280)
     {
         porciento = 5;
         color = RED;
     }
     else
     {
-        porciento = 0;
-        color = RED;
+        // apagar recolector
+        // limpiar fondo
+        display.fillRect(0, 0, 319, 480, BLACK);
+        display.setFont(u8g2_font_inb33_mf);
+        display.setCursor(0,200);
+        display.println("BATERÍA");
+        display.print("BAJA");
+        delay(5000);
+
+        digitalWrite(ONOFF, LOW); // apagar
     }
 
     display.fillRoundRect(5, 0, 80, 22, 5, color);
@@ -1318,6 +1406,25 @@ bool enviaComando(byte com[], int largo)
         }
     }
     return ack;
+}
+
+/**************************************************************************************/
+/*!
+    @brief   Teclado numérico
+    @param   codigo código del producto
+    @param   max cantidad máxima de undidades
+    @param   aux3
+    @param   aux4
+    @return  nada
+*/
+/*************************************************************************************/
+void tecladoNumerico(int codigo, int max, int origen, int aux4)
+{
+    cantidad = 0;
+    maximo_subir = max;
+    idIndice = origen;
+    dibujaTeclado(4, 4, DARKGREEN, false);
+    poneNumeros();
 }
 
 #endif
