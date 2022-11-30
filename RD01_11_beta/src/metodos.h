@@ -44,16 +44,15 @@
 #define display_CS 15
 #define display_DC 2
 #define display_RESET 4
-//#define display_TIPO 5
 // fin pines display
 // fin pines
 
 // constantes
 #define FIRM_VERSION 10 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 3600    // 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-String servidor = "192.168.101.64"; // newfac de pruebas
-// String servidor = "192.168.2.3"; // newfac
+//String servidor = "192.168.101.64"; // newfac de pruebas
+String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -287,6 +286,7 @@ void teclado(int tecla)
         {
             Serial.println("apagando");
             digitalWrite(ONOFF, LOW); // apagar
+            delay(5000);
         }
         else
         {
@@ -498,6 +498,7 @@ bool conectarWiFi()
             preferences.end();
             // esp_restart(); // Resetea el esp32
             digitalWrite(ONOFF, LOW); // apagar
+            delay(5000);
         }
     }
     return ok;
@@ -905,6 +906,7 @@ String requiereServidor(String c)
     preferences.end();
     // esp_restart(); // Resetea el esp32
     digitalWrite(ONOFF, LOW); // apagar
+    delay(5000);
     return "0";
 }
 
@@ -1144,7 +1146,7 @@ void panFondo()
     {
         sumVolts += analogReadMilliVolts(VOLTAJE);
     }
-    int volt2 = round(1.49 * sumVolts / 100); // round(1.754 * sumVolts / 100);
+    int volt2 = round(1.754 * sumVolts / 100);
     voltaje = volt2;
     int color = WHITE;
     int porciento = 0;
@@ -1220,6 +1222,7 @@ void panFondo()
         delay(5000);
 
         digitalWrite(ONOFF, LOW); // apagar
+        delay(5000);
     }
 
     display.fillRoundRect(5, 0, 80, 22, 5, color);
@@ -1242,6 +1245,7 @@ void panFondo()
     {
         Serial.println("apagando por tiempo inactivo");
         digitalWrite(ONOFF, LOW); // apagar
+        delay(5000);
     }
 }
 

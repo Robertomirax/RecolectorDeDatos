@@ -2,13 +2,13 @@
 
 void setup()
 {
-  // inicializar pin onoff con fuente encendida
+  // inicializar pin on off con fuente encendida
   pinMode(ONOFF, OUTPUT);
   digitalWrite(ONOFF, HIGH);
   delay(200);
 
   // inicializa contador de tiempo encendido
-  tiempo_encendido = esp_timer_get_time()/1000000;
+  tiempo_encendido = esp_timer_get_time() / 1000000;
 
   // iniciar la conexión serie con el lector de barras y el terminal de programación
   Serial.begin(115200);
@@ -22,7 +22,7 @@ void setup()
 
   // inicio del sensor tactil capacitivo
   touch.setHandler(handleTouch);
-  
+
   touchStart();
 
   // inicializa el display
@@ -32,13 +32,16 @@ void setup()
 
   conectarWiFi();
   panFondo();
-  configEscaner();  
+  configEscaner();
   verificaFirmware();
+  escanerOff();
+  
 }
 
 int vuelta = 0;
 void loop()
 {
+  
   if (vuelta == 500)
   {
     vuelta = 0;
@@ -56,4 +59,5 @@ void loop()
   {
     leerEscaner();
   }
+  
 }

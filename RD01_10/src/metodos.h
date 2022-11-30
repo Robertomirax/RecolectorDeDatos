@@ -2,6 +2,12 @@
 #define _METODOS_H_
 
 /*****************************************************************************************
+ * Antes de publicar verificar:
+ * 1- Versión del firmware
+ * 2- servidor
+ * 3- tiempo de apagado
+ *
+ *
  * Para actualizar el firmware:
  * Colocar el número correspondiente a la nueva versión de firmware en FIRM_VERSION
  * Compilar el programa y subir al servidor el archivo firmware.bin con el nombre
@@ -38,12 +44,11 @@
 #define display_CS 15
 #define display_DC 2
 #define display_RESET 4
-#define display_TIPO 5
 // fin pines display
 // fin pines
 
 // constantes
-#define FIRM_VERSION 8 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define FIRM_VERSION 10 // Versión del firmware actualmente instalado. Debe ser un número entero
 #define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 //String servidor = "192.168.101.64"; // newfac de pruebas
@@ -59,23 +64,24 @@ String servidor = "192.168.2.3"; // newfac
 // Crear instancias y variables
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
 DynamicJsonDocument doc(8192);
-// StaticJsonDocument<1024> doc;
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
 String visor = "";
 Arduino_ESP32SPI bus = Arduino_ESP32SPI(display_DC, display_CS, display_SCK, display_MOSI, display_MISO); // objeto que maneja la conexión SPI con el display
 Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, display_RESET, 0, false);                     // objeto que maneja el display ILI9488
-// byte modo = 0;
 String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
-byte estado = 0; // estado en el que se encuentra el recolector de datos
-int codigo = 0;  // código del producto leido por el escaner
+byte estado = 0;  // estado en el que se encuentra el recolector de datos
+int codigo = 0;   // código del producto leido por el escaner
+int idIndice = 0; // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
 int voltaje = 0;                 // voltaje de la batería
+int cantidad = 0;                // cantidad escrita en el teclado numérico
+int maximo_subir = 0;            // cantidad máxima de unidades que se pueden subir al entrepiso en una operación
 
 //  fin Crear instancias y variables
 
@@ -100,6 +106,7 @@ void configEscaner();
 bool enviaComando(byte com[], int largo);
 void teclaListo(int posx, int posy);
 void teclaBasura(int posx, int posy);
+void tecladoNumerico(int aux1, int aux2, int aux3, int aux4);
 // fin declaración de funciones -----------------------------------------------
 
 // comprueba si hay actualizaciones del firmware y las instala
@@ -131,15 +138,7 @@ void verificaFirmware()
             deserializeJson(doc, F(respuesta));
             JsonObject obj = doc.as<JsonObject>();
 
-            // uint8_t borrar = 0;
             uint16_t version = obj[F("version")];
-            // uint16_t spiffs = obj[F("spiffs")];
-            // borrar = obj[F("borrar")];
-            //  fin de decodificación del json--------------------------
-            //  extraer de preferences la versión actual de archivos SPIFFS
-            // preferences.begin("parametros", false);
-            // int spiffs_version = preferences.getInt("fs_ver", 0);
-            // preferences.end();
 
             if (version > FIRM_VERSION) // Si hay una versión con un número mas grande del firmware en el servidor actualizamos
             {
@@ -229,9 +228,7 @@ void handleTouch(int8_t contacts, GTPoint *points)
         // Serial.printf("Contacts: %d\n", contacts);
         for (uint8_t i = 0; i < contacts; i++)
         {
-            // Serial.printf("C%d: %d %d \n", points[i].trackId, 320 - points[i].x, 480 - points[i].y);
 
-            // int numero = tocoPantalla(320 - points[i].x, 480 - points[i].y);
             int numero = tocoPantalla(points[i].x, points[i].y);
             if (numero != -1)
             {
@@ -289,6 +286,7 @@ void teclado(int tecla)
         {
             Serial.println("apagando");
             digitalWrite(ONOFF, LOW); // apagar
+            delay(5000);
         }
         else
         {
@@ -297,6 +295,82 @@ void teclado(int tecla)
             panFondo();
             teclaApagado();
             requiereServidor("0&tecla=-1");
+        }
+
+        break;
+
+    case 17:                                 // teclado numérico
+        display.setFont(u8g2_font_inb33_mf); // maniac_te);
+        display.setTextColor(YELLOW);
+        display.setCursor(30, 75);
+        display.fillRect(30, 35, 200, 50, BLACK);
+
+        if (tecla == 13 || tecla == 14 || tecla == 15 || tecla == 3) // tecla inicio o listo
+        {
+            String tocado = "&tecla=";
+            Serial.println(cantidad + tocado + tecla);
+            requiereServidor(cantidad + tocado + tecla);
+        }
+        else if (tecla == 7) // tecla de borrado
+        {
+            cantidad = 0;
+            display.print(cantidad);
+        }
+        else
+        {
+            int cantidad2 = cantidad * 10;
+
+            if (tecla == 0) // número 7
+            {
+                cantidad2 += 7;
+            }
+            else if (tecla == 1) // número 8
+            {
+                cantidad2 += 8;
+            }
+            else if (tecla == 2) // número 9
+            {
+                cantidad2 += 9;
+            }
+            else if (tecla == 4) // número 4
+            {
+                cantidad2 += 4;
+            }
+            else if (tecla == 5) // número 5
+            {
+                cantidad2 += 5;
+            }
+            else if (tecla == 6) // número 6
+            {
+                cantidad2 += 6;
+            }
+            else if (tecla == 8) // número 1
+            {
+                cantidad2 += 1;
+            }
+            else if (tecla == 9) // número 2
+            {
+                cantidad2 += 2;
+            }
+            else if (tecla == 10) // número 3
+            {
+                cantidad2 += 3;
+            }
+
+            if (cantidad2 <= maximo_subir)
+            {
+                cantidad = cantidad2;
+                display.print(cantidad);
+            }
+            else
+            {
+                display.print(cantidad);
+            }
+        }
+
+        if (tecla == 12) // tecla de apagado
+        {
+            apagando();
         }
 
         break;
@@ -332,6 +406,9 @@ bool conectarWiFi()
     preferences.end();
     // ssid = "ASUS";
     // password = "rdepmgdm";
+
+    WiFi.useStaticBuffers(true);
+    WiFi.setAutoReconnect(true);
 
     if (ssid == "" || password == "")
     {
@@ -376,11 +453,12 @@ bool conectarWiFi()
         display.println(ssid);
         teclaApagado(45, 422);
 
-        while ((WiFi.status() != WL_CONNECTED) and (intentos < 10))
+        do
         {
-            // panFondo();
+            WiFi.reconnect();
+            Serial.println("reconectando");
             escanerOn();
-            for (size_t i = 0; i < 500; i++)
+            for (size_t i = 0; i < 300; i++)
             {
                 // ver si se tocó el display
                 touch.loop();
@@ -393,7 +471,8 @@ bool conectarWiFi()
                 }
             }
             intentos += 1;
-        }
+
+        } while ((WiFi.status() != WL_CONNECTED) and (intentos < 20));
 
         if ((WiFi.status() == WL_CONNECTED))
         {
@@ -412,14 +491,14 @@ bool conectarWiFi()
             Serial.print("Error, no es posible conectarse al wifi ");
             Serial.println(ssid.c_str());
             touch.loop();
-            delay(3000);
-            touch.loop();
+            delay(10);
             // guardar motivo del reset (_4) en preferences
             preferences.begin("parametros", false);
             preferences.putString("reset", "_4");
             preferences.end();
             // esp_restart(); // Resetea el esp32
             digitalWrite(ONOFF, LOW); // apagar
+            delay(5000);
         }
     }
     return ok;
@@ -593,16 +672,17 @@ void poneNumeros()
 
     // primera fila
     display.setCursor(30, 155);
-    display.print("0");
+    display.print("7");
 
     display.setCursor(107, 155);
-    display.print("1");
+    display.print("8");
 
     display.setCursor(184, 155);
-    display.print("2");
+    display.print("9");
 
-    display.setCursor(261, 155);
-    display.print("3");
+    // display.setCursor(261, 155);
+    // display.print("#");
+    teclaListo(276, 134);
 
     // segunda fila
     display.setCursor(30, 249);
@@ -614,41 +694,42 @@ void poneNumeros()
     display.setCursor(184, 249);
     display.print("6");
 
-    display.setCursor(261, 249);
-    display.print("7");
+    // display.setCursor(261, 249);
+    // display.print("#");
+    teclaBasura(239, 188);
 
     // tercera fila
     display.setCursor(30, 343);
-    display.print("8");
+    display.print("1");
 
     display.setCursor(107, 343);
-    display.print("9");
+    display.print("2");
 
     display.setCursor(184, 343);
-    display.print("A");
+    display.print("3");
 
     display.setCursor(261, 343);
-    display.print("B");
+    display.print("0");
 
     // cuarta fila
     // display.setFont(u8g2_font_inb16_mf);
-    display.setCursor(30, 437);
-    display.setTextColor(WHITE);
-    display.print("C");
+    // display.setCursor(30, 437);
+    // display.setTextColor(WHITE);
+    // display.print("C");
 
     // display.setFont(u8g2_font_inb33_mf);
-    display.setTextColor(YELLOW);
-    display.setCursor(107, 437);
-    display.print("D");
+    // display.setTextColor(YELLOW);
+    // display.setCursor(107, 437);
+    // display.print("0");
 
     // display.setFont(u8g2_font_inb16_mf);
-    display.setTextColor(BLUE);
-    display.setCursor(184, 437);
-    display.print("E");
+    // display.setTextColor(BLUE);
+    // display.setCursor(184, 437);
+    // display.print("#");
 
-    display.setFont(u8g2_font_inb33_mf);
-    display.setCursor(261, 437);
-    display.print("F");
+    // display.setFont(u8g2_font_inb33_mf);
+    // display.setCursor(261, 437);
+    // display.print("#");
 }
 
 /**************************************************************************************/
@@ -667,15 +748,6 @@ void leerEscaner()
         // deshabilita el escaner
         escanerOff();
 
-        // mensaje de espera en pantalla
-        /*
-        display.fillScreen(BLACK);
-        display.setCursor(30, 140);
-        display.setFont(u8g2_font_maniac_te);
-        display.setTextSize(1);
-        display.setTextColor(YELLOW);
-        display.println("ESPERA POR FAVOR");
-*/
         //  comprobar si es un comando el código leido
 
         if (getStringPartByNr(palabra, ';', 0) == "WIFI:T:nopass")
@@ -696,30 +768,8 @@ void leerEscaner()
         else
         {
             //  mandar el código del producto a la web
-            if ((WiFi.status() == WL_CONNECTED)) // Verificar el estado de la conexión
-            {
-                requiereServidor(palabra);
 
-                // fin de decodificación del json--------------------------
-
-                // ejecución de comandos
-
-                // verificaFirmware(); // verifica la actualización del firmware
-
-                // pantalla_1();
-            }
-            else
-            {
-                display.fillScreen(BLACK);
-                display.setCursor(0, 50);
-                display.setFont(u8g2_font_maniac_te);
-                display.setTextSize(1);
-                display.setTextColor(YELLOW);
-                display.println("No hay conexión");
-                display.println("WiFi");
-
-                conectarWiFi();
-            }
+            requiereServidor(palabra);
 
             palabra = "";
         }
@@ -779,22 +829,25 @@ String getStringPartByNr(String data, char separator, int index)
 /*************************************************************************************/
 String requiereServidor(String c)
 {
+
     int httpCode = 0;
 
     int intento = 0;
-    while (intento < 1) // hace 1 intentos de conectarse al servidor
+    while (intento < 5) // hace 5 intentos de conectarse al servidor
     {
         HTTPClient http;
         ++intento;
         String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
         // agregar el número de intento en el requerimiento
-        Serial.println("requiriendo al servidor");
+        Serial.println("requiriendo al servidor 2: ");
+        Serial.println(intento);
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
         Serial.println(servi);
+        Serial.print("httpCode: ");
         Serial.println(httpCode);
 
         if (httpCode == 200) // Si el servidor respondió ok
@@ -802,7 +855,6 @@ String requiereServidor(String c)
             String respuesta = http.getString();
             Serial.println(respuesta);
             http.end(); // libera los recursos
-            intento = 10;
 
             // decodifica el json --------------------------------------
             DeserializationError error = deserializeJson(doc, respuesta);
@@ -814,7 +866,6 @@ String requiereServidor(String c)
             }
 
             JsonArray arr = doc.as<JsonArray>();
-
             ejecutaComandos(arr);
 
             return respuesta;
@@ -823,6 +874,7 @@ String requiereServidor(String c)
         {
             Serial.print("Error en el requerimiento HTTPs ");
             Serial.println(httpCode);
+
             escanerOn();
             for (size_t i = 0; i < 500; i++)
             {
@@ -852,7 +904,10 @@ String requiereServidor(String c)
     preferences.begin("parametros", false);
     preferences.putString("reset", "_1");
     preferences.end();
-    esp_restart(); // Resetea el esp32
+    // esp_restart(); // Resetea el esp32
+    digitalWrite(ONOFF, LOW); // apagar
+    delay(5000);
+    return "0";
 }
 
 void ejecutaComandos(JsonArray arr)
@@ -949,6 +1004,7 @@ void ejecutaComandos(JsonArray arr)
         case 12: // habilitación escaner 0 = deshabilita 1 = habilita
 
             habi = arr[i][1];
+            Serial.print("escaner: ");
             Serial.println(habi);
 
             if (habi == 1)
@@ -961,11 +1017,11 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 13:
+        case 13: // dibuja la tecla listo
             teclaListo(arr[i][1], arr[i][2]);
             break;
 
-        case 14:
+        case 14: // dibuja la tecla basura
             teclaBasura(arr[i][1], arr[i][2]);
             break;
 
@@ -982,13 +1038,19 @@ void ejecutaComandos(JsonArray arr)
             display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
             break;
 
+        case 18: // tecladoNumerico
+            tecladoNumerico(arr[i][1], arr[i][2], arr[i][3], arr[i][4]);
+            break;
+
+        case 19: // idIndice de la tabla transito_entrepiso
+            idIndice = arr[i][1];
+            break;
+
         default:
             break;
         }
     }
     teclaApagado();
-    Serial.print("sucursalapu ");
-    Serial.println(sucursalapu);
 }
 
 /***************************************************************************************/
@@ -1106,52 +1168,61 @@ void panFondo()
     else if (volt2 > 387)
     {
         porciento = 70;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 382)
     {
         porciento = 60;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 379)
     {
         porciento = 50;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 377)
     {
         porciento = 40;
-        color = YELLOW;
+        color = GREEN;
     }
     else if (volt2 > 373)
     {
         porciento = 30;
-        color = RED;
+        color = GREEN;
     }
     else if (volt2 > 370)
     {
         porciento = 20;
-        color = RED;
+        color = YELLOW;
     }
     else if (volt2 > 368)
     {
         porciento = 15;
-        color = RED;
+        color = YELLOW;
     }
     else if (volt2 > 350)
     {
         porciento = 10;
-        color = RED;
+        color = YELLOW;
     }
-    else if (volt2 > 250)
+    else if (volt2 > 280)
     {
         porciento = 5;
         color = RED;
     }
     else
     {
-        porciento = 0;
-        color = RED;
+        // apagar recolector
+        // limpiar fondo
+        display.fillRect(0, 0, 319, 480, BLACK);
+        display.setFont(u8g2_font_inb33_mf);
+        display.setCursor(0,200);
+        display.println("BATERÍA");
+        display.print("BAJA");
+        delay(5000);
+
+        digitalWrite(ONOFF, LOW); // apagar
+        delay(5000);
     }
 
     display.fillRoundRect(5, 0, 80, 22, 5, color);
@@ -1174,6 +1245,7 @@ void panFondo()
     {
         Serial.println("apagando por tiempo inactivo");
         digitalWrite(ONOFF, LOW); // apagar
+        delay(5000);
     }
 }
 
@@ -1210,9 +1282,6 @@ void apagando()
     display.print("ENCENDIDO");
 
     estado = APAGANDO;
-
-    //    Serial.println("apagando");
-    //    digitalWrite(ONOFF, LOW); // apagar
 }
 
 // habilita el escaner, pone la variable pública escaner en true
@@ -1248,7 +1317,7 @@ void configEscaner()
     largo = sizeof(buf9);
     Serial.println(enviaComando(buf9, largo));
     Serial.println();
-    delay(1000);
+    delay(500);
     /*
         Serial.println("NO Allows scan configuration");
         byte buf[] = {0x07, 0xC6, 0x04, 0x08, 0x00, 0xEC, 0x00, 0xFE, 0x3B}; // NO Allows scan configuration bar code
@@ -1341,6 +1410,25 @@ bool enviaComando(byte com[], int largo)
         }
     }
     return ack;
+}
+
+/**************************************************************************************/
+/*!
+    @brief   Teclado numérico
+    @param   codigo código del producto
+    @param   max cantidad máxima de undidades
+    @param   aux3
+    @param   aux4
+    @return  nada
+*/
+/*************************************************************************************/
+void tecladoNumerico(int codigo, int max, int origen, int aux4)
+{
+    cantidad = 0;
+    maximo_subir = max;
+    idIndice = origen;
+    dibujaTeclado(4, 4, DARKGREEN, false);
+    poneNumeros();
 }
 
 #endif
