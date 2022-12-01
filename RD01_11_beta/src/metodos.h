@@ -48,11 +48,11 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 10 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define FIRM_VERSION 11 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 3600 //240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-//String servidor = "192.168.101.64"; // newfac de pruebas
-String servidor = "192.168.2.3"; // newfac
+String servidor = "192.168.101.64"; // newfac de pruebas
+//String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
