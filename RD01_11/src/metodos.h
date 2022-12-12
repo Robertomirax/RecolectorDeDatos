@@ -49,10 +49,10 @@
 
 // constantes
 #define FIRM_VERSION 11 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 3600 //240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-String servidor = "192.168.101.64"; // newfac de pruebas
-//String servidor = "192.168.2.3"; // newfac
+//String servidor = "192.168.101.64"; // newfac de pruebas
+String servidor = "192.168.2.3"; // newfac
 
 // estados
 #define INICIO 0     // Estado inicial despues del encendido o reset.
@@ -73,9 +73,10 @@ String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
-byte estado = 0;  // estado en el que se encuentra el recolector de datos
-int codigo = 0;   // código del producto leido por el escaner
-int idIndice = 0; // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
+byte estado = 0;    // estado en el que se encuentra el recolector de datos
+int codigo = 0;     // código del producto leido por el escaner
+char ubicacion[40]; // ubicacion leida del producto para el inventario
+int idIndice = 0;   // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
@@ -842,7 +843,7 @@ String requiereServidor(String c)
         Serial.println("requiriendo al servidor 2: ");
         Serial.println(intento);
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice;
+        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice + "&ubicacion=" + ubicacion;
 
         http.begin(servi);
         httpCode = http.GET(); // Hacer el requerimiento
@@ -1046,6 +1047,11 @@ void ejecutaComandos(JsonArray arr)
             idIndice = arr[i][1];
             break;
 
+        case 20: // ubicacion del producto
+            texto = arr[i][1];
+            strcpy(ubicacion, texto);
+            break;
+
         default:
             break;
         }
@@ -1216,7 +1222,7 @@ void panFondo()
         // limpiar fondo
         display.fillRect(0, 0, 319, 480, BLACK);
         display.setFont(u8g2_font_inb33_mf);
-        display.setCursor(0,200);
+        display.setCursor(0, 200);
         display.println("BATERÍA");
         display.print("BAJA");
         delay(5000);
