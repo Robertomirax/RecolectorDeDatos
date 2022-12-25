@@ -48,8 +48,8 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 12 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 3600// 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define FIRM_VERSION 13 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define APAGADO 3600 //240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 String servidor = "192.168.101.64"; // newfac de pruebas
 //String servidor = "192.168.2.3"; // newfac
@@ -63,7 +63,7 @@ String servidor = "192.168.101.64"; // newfac de pruebas
 
 // Crear instancias y variables
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
-DynamicJsonDocument doc(8192);
+DynamicJsonDocument doc(16384);
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
 String visor = "";
@@ -73,10 +73,10 @@ String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
-byte estado = 0;    // estado en el que se encuentra el recolector de datos
-int codigo = 0;     // código del producto leido por el escaner
-char ubicacion[40]; // ubicacion leida del producto para el inventario
-int idIndice = 0;   // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
+byte estado = 0;     // estado en el que se encuentra el recolector de datos
+int codigo = 0;      // código del producto leido por el escaner
+char ubicacion[100]; // ubicacion leida del producto para el inventario
+int idIndice = 0;    // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
 bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
@@ -108,6 +108,7 @@ bool enviaComando(byte com[], int largo);
 void teclaListo(int posx, int posy);
 void teclaBasura(int posx, int posy);
 void tecladoNumerico(int aux1, int aux2, int aux3, int aux4);
+void teclaSuspender(int posx, int posy);
 // fin declaración de funciones -----------------------------------------------
 
 // comprueba si hay actualizaciones del firmware y las instala
@@ -833,82 +834,97 @@ String requiereServidor(String c)
 
     int httpCode = 0;
 
-    int intento = 0;
-    while (intento < 5) // hace 5 intentos de conectarse al servidor
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(10000);
+    String servi = "http://" + servidor + "/newfac/RD01/rd01.php";
+
+    const char *serverName = servi.c_str();
+
+    http.begin(client, serverName);
+
+    // If you need Node-RED/server authentication, insert user and password below
+    // http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
+
+    // Specify content-type header
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    // Data to send with HTTP POST
+    String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
+
+    String httpRequestData = "c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice + "&ubicacion=" + ubicacion;
+
+    // Send HTTP POST request
+    int httpResponseCode = http.POST(httpRequestData);
+
+    // If you need an HTTP request with a content type: application/json, use the following:
+    // http.addHeader("Content-Type", "application/json");
+    // int httpResponseCode = http.POST("{\"api_key\":\"tPmAT5Ab3j7F9\",\"sensor\":\"BME280\",\"value1\":\"24.25\",\"value2\":\"49.54\",\"value3\":\"1005.14\"}");
+
+    // If you need an HTTP request with a content type: text/plain
+    // http.addHeader("Content-Type", "text/plain");
+    // int httpResponseCode = http.POST("Hello, World!");
+    Serial.println(serverName);
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+
+    if (httpResponseCode == 200) // Si el servidor respondió ok
     {
-        HTTPClient http;
-        ++intento;
-        String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
-        // agregar el número de intento en el requerimiento
-        Serial.println("requiriendo al servidor 2: ");
-        Serial.println(intento);
+        String respuesta = http.getString();
+        Serial.println(respuesta);
+        http.end(); // libera los recursos
 
-        String servi = "http://" + servidor + "/newfac/RD01/rd01.php?c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice + "&ubicacion=" + ubicacion;
+        // decodifica el json --------------------------------------
+        DeserializationError error = deserializeJson(doc, respuesta);
 
-        http.begin(servi);
-        httpCode = http.GET(); // Hacer el requerimiento
-        Serial.println(servi);
-        Serial.print("httpCode: ");
+        if (error)
+        {
+            Serial.print("deserializeJson() failed: ");
+            Serial.println(error.c_str());
+        }
+
+        JsonArray arr = doc.as<JsonArray>();
+        ejecutaComandos(arr);
+
+        return respuesta;
+    }
+    else
+    {
+        Serial.print("Error en el requerimiento HTTPs ");
         Serial.println(httpCode);
 
-        if (httpCode == 200) // Si el servidor respondió ok
+        escanerOn();
+        for (size_t i = 0; i < 500; i++)
         {
-            String respuesta = http.getString();
-            Serial.println(respuesta);
-            http.end(); // libera los recursos
+            // ver si se tocó el display
+            touch.loop();
+            delay(10);
 
-            // decodifica el json --------------------------------------
-            DeserializationError error = deserializeJson(doc, respuesta);
-
-            if (error)
+            // Leer los datos provenientes del escaner si están disponibles
+            while (Serial2.available())
             {
-                Serial.print("deserializeJson() failed: ");
-                Serial.println(error.c_str());
-            }
-
-            JsonArray arr = doc.as<JsonArray>();
-            ejecutaComandos(arr);
-
-            return respuesta;
-        }
-        else
-        {
-            Serial.print("Error en el requerimiento HTTPs ");
-            Serial.println(httpCode);
-
-            escanerOn();
-            for (size_t i = 0; i < 500; i++)
-            {
-                // ver si se tocó el display
-                touch.loop();
-                delay(10);
-
-                // Leer los datos provenientes del escaner si están disponibles
-                while (Serial2.available())
-                {
-                    leerEscaner();
-                }
+                leerEscaner();
             }
         }
+
+        // mostrar en pantalla el código de respuesta del servidor
+        display.fillScreen(BLACK);
+        display.setCursor(0, 50);
+        display.setFont(u8g2_font_maniac_te);
+        display.setTextSize(1);
+        display.setTextColor(YELLOW);
+        display.println("Error de respuesta del servidor");
+        display.setTextColor(WHITE);
+        display.println(httpCode);
+        delay(2000);
+        // guardar motivo del reset (_1) en preferences
+        preferences.begin("parametros", false);
+        preferences.putString("reset", "_1");
+        preferences.end();
+        // esp_restart(); // Resetea el esp32
+        digitalWrite(ONOFF, LOW); // apagar
+        delay(5000);
+        return "0";
     }
-    // mostrar en pantalla el código de respuesta del servidor
-    display.fillScreen(BLACK);
-    display.setCursor(0, 50);
-    display.setFont(u8g2_font_maniac_te);
-    display.setTextSize(1);
-    display.setTextColor(YELLOW);
-    display.println("Error de respuesta del servidor");
-    display.setTextColor(WHITE);
-    display.println(httpCode);
-    delay(2000);
-    // guardar motivo del reset (_1) en preferences
-    preferences.begin("parametros", false);
-    preferences.putString("reset", "_1");
-    preferences.end();
-    // esp_restart(); // Resetea el esp32
-    digitalWrite(ONOFF, LOW); // apagar
-    delay(5000);
-    return "0";
 }
 
 void ejecutaComandos(JsonArray arr)
@@ -1051,6 +1067,10 @@ void ejecutaComandos(JsonArray arr)
             texto = arr[i][1];
             strcpy(ubicacion, texto);
             break;
+        
+        case 21: // dibuja la tecla cancelar
+            teclaSuspender(arr[i][1], arr[i][2]);
+            break;
 
         default:
             break;
@@ -1082,9 +1102,20 @@ void teclaListo(int posx, int posy)
     display.fillArc(posx - 1, posy + 5, 30, 25, 340, 290, WHITE);
 }
 
-void teclaBasura(int posx, int posy)
+void teclaSuspender(int posx, int posy)
 {
 
+    display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, ORANGE);
+    display.fillRoundRect(posx - 20, posy - 2, 10, 10, 5, BLACK);
+    display.fillRoundRect(posx - 6, posy - 2, 10, 10, 5, BLACK);
+    display.fillRoundRect(posx + 8, posy - 2, 10, 10, 5, BLACK);
+
+    display.fillArc(posx - 1, posy + 3, 32, 26, 0, 360, RED);
+    
+}
+
+void teclaBasura(int posx, int posy)
+{
     display.fillRoundRect(posx, posy, 73, 92, 10, RED);
     display.fillRoundRect(posx + 15, posy + 16, 43, 60, 8, WHITE);
     display.fillRoundRect(posx + 12, posy + 16, 48, 10, 0, RED);
