@@ -49,9 +49,10 @@
 
 // constantes
 #define FIRM_VERSION 14 // Versión del firmware actualmente instalado. Debe ser un número entero
-#define APAGADO 3600 //240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
+#define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-String servidor = "192.168.101.64"; // newfac de pruebas
+String servidor = "";
+//String servidor = "192.168.101.64"; // newfac de pruebas
 //String servidor = "192.168.2.3"; // newfac
 
 // estados
@@ -109,6 +110,8 @@ void teclaListo(int posx, int posy);
 void teclaBasura(int posx, int posy);
 void tecladoNumerico(int aux1, int aux2, int aux3, int aux4);
 void teclaSuspender(int posx, int posy);
+void dibujaTeclado(char botx, char boty, uint color, bool fondo);
+void poneNumeros();
 // fin declaración de funciones -----------------------------------------------
 
 // comprueba si hay actualizaciones del firmware y las instala
@@ -228,11 +231,8 @@ void handleTouch(int8_t contacts, GTPoint *points)
     uint32_t tiempoNum = xTaskGetTickCount();
     if (tiempoNum > tiempoUltNum + 50) // no hubo señal INT durante 50 ticks
     {
-
-        // Serial.printf("Contacts: %d\n", contacts);
         for (uint8_t i = 0; i < contacts; i++)
         {
-
             int numero = tocoPantalla(points[i].x, points[i].y);
             if (numero != -1)
             {
@@ -292,8 +292,21 @@ void teclado(int tecla)
             digitalWrite(ONOFF, LOW); // apagar
             delay(5000);
         }
+        else if (tecla == 4) // tecla de CONFIGURACIÓN
+        {
+            display.fillRoundRect(0, 23, 319, 450, 10, BLACK);
+            dibujaTeclado(4, 4, DARKGREEN, false);
+            poneNumeros();
+            estado = 17; // teclado numérico
+            maximo_subir = 10000000;
+            idIndice = 1234;
+        }
         else
         {
+            // define servidor
+            preferences.begin("credenciales", false);
+            servidor = preferences.getString("servidor", "");
+
             estado = INICIO;
             display.fillScreen(BLACK);
             panFondo();
@@ -309,11 +322,36 @@ void teclado(int tecla)
         display.setCursor(30, 75);
         display.fillRect(30, 35, 200, 50, BLACK);
 
-        if (tecla == 13 || tecla == 14 || tecla == 15 || tecla == 3) // tecla inicio o listo
+        if (tecla == 13 || tecla == 14 || tecla == 15) // tecla inicio
         {
             String tocado = "&tecla=";
             Serial.println(cantidad + tocado + tecla);
             requiereServidor(cantidad + tocado + tecla);
+        }
+        else if ((tecla == 3) && (idIndice != 1234)) // tecla listo uso general
+        {
+            String tocado = "&tecla=";
+            Serial.println(cantidad + tocado + tecla);
+            requiereServidor(cantidad + tocado + tecla);
+        }
+        else if ((tecla == 3) && (idIndice == 1234)) // tecla listo leyendo clave
+        {
+            Serial.println(cantidad);
+            if (cantidad == 753064) // clave correcta cambia al servidor 101.64 (pruebas)
+            {
+                preferences.begin("credenciales", false);
+                preferences.putString("servidor", "192.168.101.64");
+            }
+            else if (cantidad == 753003) // clave correcta cambia al servidor 2.3 (apumanque)
+            {
+                preferences.begin("credenciales", false);
+                preferences.putString("servidor", "192.168.2.3");
+            }
+            else
+            {
+                cantidad = 0;
+                display.print(cantidad);
+            }
         }
         else if (tecla == 7) // tecla de borrado
         {
@@ -571,7 +609,7 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
 /***************************************************************************************/
 int tocoPantalla(uint16_t x, uint16_t y)
 {
-    tiempo_encendido = esp_timer_get_time() / 1000000;
+    tiempo_encendido = esp_timer_get_time() / 1000000; // reseteo el tiempo de inactividad
     int numero = -1;
 
     // primera fila
@@ -670,7 +708,7 @@ void poneNumeros()
 {
 
     // números
-    display.setFont(u8g2_font_inb33_mf); // maniac_te);
+    display.setFont(u8g2_font_inb33_mf);
     display.setTextSize(1);
     display.setTextColor(YELLOW);
 
@@ -684,8 +722,6 @@ void poneNumeros()
     display.setCursor(184, 155);
     display.print("9");
 
-    // display.setCursor(261, 155);
-    // display.print("#");
     teclaListo(276, 134);
 
     // segunda fila
@@ -698,8 +734,6 @@ void poneNumeros()
     display.setCursor(184, 249);
     display.print("6");
 
-    // display.setCursor(261, 249);
-    // display.print("#");
     teclaBasura(239, 188);
 
     // tercera fila
@@ -714,26 +748,6 @@ void poneNumeros()
 
     display.setCursor(261, 343);
     display.print("0");
-
-    // cuarta fila
-    // display.setFont(u8g2_font_inb16_mf);
-    // display.setCursor(30, 437);
-    // display.setTextColor(WHITE);
-    // display.print("C");
-
-    // display.setFont(u8g2_font_inb33_mf);
-    // display.setTextColor(YELLOW);
-    // display.setCursor(107, 437);
-    // display.print("0");
-
-    // display.setFont(u8g2_font_inb16_mf);
-    // display.setTextColor(BLUE);
-    // display.setCursor(184, 437);
-    // display.print("#");
-
-    // display.setFont(u8g2_font_inb33_mf);
-    // display.setCursor(261, 437);
-    // display.print("#");
 }
 
 /**************************************************************************************/
@@ -836,7 +850,7 @@ void requiereServidor(String c)
 
     int httpCode = 0;
     HTTPClient http;
-    http.setTimeout(20000);
+    http.setTimeout(30000);
     String servi = "http://" + servidor + "/newfac/RD01/rd01.php";
     const char *serverName = servi.c_str();
     http.begin(serverName);
@@ -891,22 +905,7 @@ void requiereServidor(String c)
         Serial.print("Error en el requerimiento HTTPs ");
         Serial.println(httpResponseCode);
         http.end();
-
-        /*
-                escanerOn();
-                for (size_t i = 0; i < 500; i++)
-                {
-                    // ver si se tocó el display
-                    touch.loop();
-                    delay(10);
-
-                    // Leer los datos provenientes del escaner si están disponibles
-                    while (Serial2.available())
-                    {
-                        leerEscaner();
-                    }
-                }
-        */
+      
         // mostrar en pantalla el código de respuesta del servidor
         display.fillScreen(BLACK);
         display.setCursor(0, 50);
@@ -930,17 +929,12 @@ void requiereServidor(String c)
             display.println("Verifica con el supervisor");
             estado = 0;
         }
-        /*
-                delay(2000);
-                // guardar motivo del reset (_1) en preferences
-                preferences.begin("parametros", false);
-                preferences.putString("reset", "_1");
-                preferences.end();
-                // esp_restart(); // Resetea el esp32
-                digitalWrite(ONOFF, LOW); // apagar
-                delay(5000);
-                return "0";
-          */
+
+        display.fillRoundRect(85, 380, 227, 92, 10, BLUE);
+        display.setFont(u8g2_font_inb30_mf);
+        display.setTextColor(WHITE);
+        display.setCursor(116, 439);
+        display.print("INICIO");
     }
 }
 
@@ -1112,7 +1106,6 @@ void teclaApagado(int posx, int posy)
 
 void teclaListo(int posx, int posy)
 {
-
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, GREEN);
     display.fillArc(posx + 80, posy + 40, 87, 80, 190, 230, WHITE);
     display.fillArc(posx - 85, posy + 25, 85, 78, 340, 0, WHITE);
@@ -1172,6 +1165,22 @@ void panFondo()
         display.drawArc(posx, posy + 3, 8, 8, 240, 300, WHITE);
         display.fillCircle(posx, posy, 2, WHITE);
     }
+
+    // servidor:
+    display.fillRect(94, 0, 24, 19, BLACK);
+    display.setFont(u8g2_font_mozart_nbp_tf);
+    display.setCursor(94, 8);
+    display.setTextColor(MAGENTA);
+    display.print("SERV");
+    display.setCursor(94, 18);
+    if (servidor == "192.168.101.64")
+    {
+        display.print("64");
+    }
+    else if (servidor == "192.168.2.3")
+    {
+        display.print("03");
+    }    
 
     // número de versión de firmware
     display.fillRect(295, 0, 24, 19, BLACK);
@@ -1327,12 +1336,23 @@ void apagando()
     display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
 
     display.setFont(u8g2_font_inb21_mf);
-    display.setTextSize(1);
     display.setTextColor(BLUE);
     display.setCursor(120, 420);
     display.println("MANTENER");
     display.setCursor(112, 450);
     display.print("ENCENDIDO");
+
+    // dibujaTeclado(4, 4, CYAN, false);
+
+    // tecla configurar
+    display.fillRoundRect(8, 188, 74, 92, 10, DARKCYAN);
+    display.setFont(u8g2_font_inb21_mf);
+    display.setTextColor(WHITE);
+    display.setCursor(8, 245);
+    display.println("CONF");
+
+    display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
+    display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
 
     estado = APAGANDO;
 }

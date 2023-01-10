@@ -30,18 +30,26 @@ void setup()
   display.setRotation(0); // 0, 1, 2, 3 "1"
   teclaApagado(45, 422);
 
+  // define servidor
+  preferences.begin("credenciales", false);
+  servidor = preferences.getString("servidor", "");
+  if (servidor == "")//Si no hay servidor definido asigna por defecto el newfac apumanque
+  {
+    preferences.begin("credenciales", false);
+    preferences.putString("servidor", "192.168.2.3");
+  }
+
   conectarWiFi();
   panFondo();
   configEscaner();
   verificaFirmware();
   escanerOff();
-  
 }
 
 int vuelta = 0;
 void loop()
 {
-  
+
   if (vuelta == 500)
   {
     vuelta = 0;
@@ -59,5 +67,4 @@ void loop()
   {
     leerEscaner();
   }
-  
 }
