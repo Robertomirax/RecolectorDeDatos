@@ -850,7 +850,8 @@ void requiereServidor(String c)
 
     int httpCode = 0;
     HTTPClient http;
-    http.setTimeout(30000);
+    http.setTimeout(30000); // tiempo de timeout en milisegundos para recibir respuesta del servidor
+    http.setConnectTimeout(15000);// tiempo de timeout en milisegundos para conectarse al servidor
     String servi = "http://" + servidor + "/newfac/RD01/rd01.php";
     const char *serverName = servi.c_str();
     http.begin(serverName);
@@ -916,12 +917,33 @@ void requiereServidor(String c)
         display.setTextColor(RED);
         display.println(httpResponseCode);
         display.println();
+
         if (httpResponseCode == -11)
         {
             display.setTextColor(WHITE);
             display.println("EL SERVIDOR TARDA");
             display.println("DEMASIADO EN");
             display.println("RESPONDER");
+            display.println("");
+            display.setFont(u8g2_font_10x20_mf);
+            display.println("PROBABLEMENTE HIZO");
+            display.println("LA OPERACIÓN IGUAL");
+            display.println("Verifica con el supervisor");
+            estado = 0;
+            //mandar log al servidor
+            estado = 200; //indica que la info es un log
+            httpRequestData.replace('&',' ');
+            c = "[" + httpRequestData + "]";
+            requiereServidor(c);
+            estado = 0;
+        }
+
+        if (httpResponseCode == -1)
+        {
+            display.setTextColor(WHITE);
+            display.println("No pudo establecer");
+            display.println("conexión con el");
+            display.println("servidor");
             display.println("");
             display.setFont(u8g2_font_10x20_mf);
             display.println("PROBABLEMENTE HIZO");
@@ -935,6 +957,7 @@ void requiereServidor(String c)
         display.setTextColor(WHITE);
         display.setCursor(116, 439);
         display.print("INICIO");
+        teclaApagado(45, 422);
     }
 }
 
