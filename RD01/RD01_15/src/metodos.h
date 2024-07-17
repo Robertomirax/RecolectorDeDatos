@@ -48,7 +48,7 @@
 // fin pines
 
 // constantes
-#define FIRM_VERSION 15 // Versión del firmware actualmente instalado. Debe ser un número entero
+#define FIRM_VERSION 14 // Versión del firmware actualmente instalado. Debe ser un número entero
 #define APAGADO 240    // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
 String servidor = "";
