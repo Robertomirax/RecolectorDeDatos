@@ -58,15 +58,40 @@ El monitor serie se puede iniciar con `pio device monitor`; su velocidad configu
 
 ## Puesta en marcha y comunicación
 
-Al iniciar, el firmware inicializa alimentación, puertos serie, I2C, táctil y display.
-Después recupera de NVS (`Preferences`) el servidor y las credenciales Wi-Fi, configura
-el escáner, se conecta a la red y consulta si existe firmware nuevo.
+Al iniciar, el firmware habilita la alimentación y prepara los puertos serie, I2C, táctil
+y display. Recupera de NVS (`Preferences`) el servidor y las credenciales Wi-Fi; si no
+existe una dirección guardada, usa `192.168.2.3`. Inicia la conexión Wi-Fi sin esperar de
+forma bloqueante, configura el escáner y mantiene el ciclo principal activo. Cuando se
+conecta, envía la acción inicial al servidor y consulta si hay firmware nuevo. La consulta
+OTA puede reintentarse hasta cinco veces si falla la lectura del manifiesto.
 
-Si no hay credenciales Wi-Fi guardadas, se pueden proporcionar escaneando un QR que el
-lector entregue como texto separado por punto y coma. El parser busca el prefijo
-`WIFI:T:nopass`, el campo `S:` para el SSID y el campo `P:` para la contraseña. Al
-reconocerlo, guarda ambos campos bajo el espacio NVS `credenciales` y vuelve a intentar
-la conexión.
+Si no hay credenciales Wi-Fi guardadas, se pueden proporcionar escaneando un QR cuyo
+contenido tenga este formato:
+
+```text
+WIFI:T:nopass;S:<SSID>;P:<contraseña>;;
+```
+
+El lector debe enviar ese texto y terminarlo con retorno de carro (CR). El parser
+reconoce el primer campo `WIFI:T:nopass`, toma el SSID del campo `S:` y la contraseña
+del campo `P:`. Aunque el prefijo diga `nopass`, el código actual espera que exista el
+campo `P:`; no es el formato genérico para redes abiertas. Al reconocer el QR, guarda
+ambos valores en NVS bajo el espacio `credenciales` e inicia/reintenta la conexión.
+El parser actual no procesa escapes ni campos reordenados: mantener el orden mostrado.
+
+### Cambiar el servidor desde la pantalla
+
+1. Tocar el botón de apagado y luego **CONF**.
+2. Introducir el código numérico y tocar **Listo** (tecla superior derecha).
+3. Usar `753064` para guardar `192.168.101.64` (pruebas) o `753003` para guardar
+   `192.168.2.3` (servidor principal).
+4. Salir del teclado con su botón de apagado; en la pantalla de apagado, tocar
+   **MANTENER ENCENDIDO** para volver al inicio. Al regresar se vuelve a leer el servidor
+   guardado y se usa en las siguientes peticiones.
+
+La dirección se persiste en NVS en el espacio `credenciales`; no se escribe directamente
+en el firmware. Los códigos numéricos de acceso están definidos en `teclado()` de
+`src/metodos.h`.
 
 Los códigos leídos terminan con retorno de carro (CR). Cada código ordinario se envía
 como el parámetro `c` de un POST a:
@@ -84,14 +109,35 @@ vacía y no intenta ejecutarla como comandos.
 El campo `c` conserva `&` y `=` porque algunas acciones usan una subconsulta histórica,
 por ejemplo `0&tecla=15`; los demás campos de texto se codifican como formulario URL.
 
-Los principales grupos de comandos de esa respuesta son:
+Cada elemento de la respuesta es un arreglo `[comando, argumento...]`. Los números y
+argumentos son un protocolo compartido con `rd01.php`; al cambiarlo, actualizar ambos
+lados. Los argumentos de dibujo se expresan en píxeles y los colores en RGB565.
 
-| Códigos | Acción |
-| --- | --- |
-| 1–8 | Dibujar rectángulos, mover cursor, elegir fuente/tamaño/color, escribir texto, limpiar pantalla o dibujar la cuadrícula |
-| 9–12 | Cambiar estado, imprimir una línea, actualizar código del producto o habilitar/deshabilitar el escáner |
-| 13–18 | Dibujar botones, cambiar sucursal, dibujar arco/línea o mostrar el teclado numérico |
-| 19–21 | Actualizar índice/ubicación o dibujar el botón de cancelación |
+| Código | Argumentos, en orden | Acción |
+| --- | --- | --- |
+| 1 | `x, y, ancho, alto, radio, color` | Rectángulo redondeado relleno |
+| 2 | `x, y` | Posición del cursor |
+| 3 | `índiceFuente` (1–7) | Elegir una de las fuentes incluidas |
+| 4 | `tamaño` | Escala del texto |
+| 5 | `color` | Color del texto |
+| 6 | `texto` | Imprimir texto sin salto de línea |
+| 7 | `color` | Limpiar la pantalla |
+| 8 | `columnas, filas, color, relleno` | Dibujar la cuadrícula del teclado |
+| 9 | `estado` | Actualizar el estado de la terminal |
+| 10 | `texto` | Imprimir texto y terminar la línea |
+| 11 | `código` | Actualizar el código del producto |
+| 12 | `habilitado` | Habilitar el escáner solo si el valor es `1`; otros valores lo deshabilitan |
+| 13–14 | `x, y` | Dibujar los botones Listo o Borrar |
+| 15 | `sucursal` | Actualizar la sucursal (máximo 19 bytes más NUL) |
+| 16 | `centroX, centroY, radioX, radioY, ánguloInicio, ánguloFin, color` | Dibujar arco relleno |
+| 17 | `x1, y1, x2, y2, color` | Dibujar una línea |
+| 18 | `código, máximo, origen, auxiliar` | Mostrar teclado numérico; actualmente solo se usan `máximo` y `origen` |
+| 19 | `índice` | Actualizar el identificador de origen |
+| 20 | `ubicación` | Actualizar ubicación (máximo 99 bytes más NUL) |
+| 21 | `x, y` | Dibujar el botón de cancelar/suspender |
+
+Al terminar cada lista, el firmware vuelve a dibujar el botón de apagado. Los textos de
+sucursal y ubicación que exceden sus buffers se rechazan y se registran por Serial.
 
 ## Servidor y actualización OTA
 
@@ -134,16 +180,21 @@ Los archivos de texto del proyecto se mantienen en UTF-8. `.editorconfig` fija
 o cadenas, comprobar que el editor haya abierto el archivo como UTF-8 antes de guardarlo.
 
 Los mensajes de diagnóstico del arranque y de la comunicación con el escáner se envían
-por USB a 115200 baudios. La carpeta `test/` contiene actualmente el README de plantilla
-de PlatformIO; no hay pruebas automatizadas específicas del firmware.
+por USB a 115200 baudios. La petición POST también se imprime completa para diagnóstico;
+incluye el código recibido y datos como dirección MAC y ubicación, por lo que debe
+considerarse al compartir capturas del monitor serie. La carpeta `test/` contiene
+actualmente el README de plantilla de PlatformIO; no hay pruebas automatizadas específicas
+del firmware.
 
 ## Observaciones de mantenimiento
 
 - `verificaFirmware()` limita las consultas a cinco intentos, aunque conserva una
   pausa corta entre intentos. La verificación se ejecuta al establecer la conexión.
-- La reconexión Wi-Fi es supervisada desde el ciclo principal y evita esperar decenas de
-  segundos bloqueando el escáner y la interfaz.
-- Los logs ya no imprimen contraseñas ni el cuerpo completo de los POST.
+- Los intentos de reconexión Wi-Fi se supervisan desde el ciclo principal cada 15
+  segundos, sin una espera dedicada que pause la interfaz. Las peticiones HTTP siguen
+  siendo síncronas y pueden bloquear durante sus tiempos de espera configurados.
+- Los logs no imprimen la contraseña Wi-Fi; el cuerpo completo del POST sí se muestra
+  para diagnóstico.
 - Los códigos del escáner se limitan a 256 bytes; las entradas más largas se descartan.
 - La actualización OTA viaja por HTTP sin cifrado ni autenticación TLS; restringirla a
   redes confiables o añadir verificación criptográfica de firmware antes de exponerla.

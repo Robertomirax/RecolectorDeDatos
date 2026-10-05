@@ -1,7 +1,8 @@
 #include "Goodix.h"
 #include "Wire.h"
 
-// Interrupt handling
+// El controlador táctil puede interrumpir en cualquier momento. La ISR solo deja una
+// marca; la lectura I2C y el callback se ejecutan luego desde Goodix::loop().
 volatile bool goodixIRQ = false;
 
 #if defined(ESP8266)
@@ -23,21 +24,23 @@ void _goodix_irq_handler() {
 #endif
 
 
-// Implementation
-Goodix::Goodix() {
+// Implementación del controlador Goodix por I2C.
+Goodix::Goodix()
+    : i2cAddr(GOODIX_I2C_ADDR_BA), config{}, info{}, points{},
+      intPin(0), rstPin(0), touchHandler(nullptr) {}
 
-}
-
+// Registra la función de la aplicación que recibirá las coordenadas táctiles.
 void Goodix::setHandler(void (*handler)(int8_t, GTPoint*)) {
   touchHandler = handler;
 }
 
 bool Goodix::begin(uint8_t interruptPin, uint8_t resetPin, uint8_t addr) {
+  // Guarda pines/dirección y espera la estabilización del sensor antes de resetearlo.
   intPin = interruptPin;
   rstPin = resetPin;
   i2cAddr = addr;
 
-  // Take chip some time to start
+  // El controlador necesita estabilizarse antes y después de la secuencia de reset.
   msSleep(300);
   bool result = reset();
   msSleep(200);
@@ -47,6 +50,7 @@ bool Goodix::begin(uint8_t interruptPin, uint8_t resetPin, uint8_t addr) {
 
 
 bool Goodix::reset() {
+  // La secuencia de niveles en INT durante RESET selecciona la dirección I2C del chip.
   msSleep(1);
 
   pinMode(intPin, OUTPUT);
@@ -83,35 +87,28 @@ bool Goodix::reset() {
   return true;
 }
 
-/**
-   Read goodix touchscreen version
-   set 4 chars + zero productID to target
-*/
+// Lee cuatro caracteres de identificación y añade el terminador NUL en el buffer destino.
 uint8_t Goodix::productID(char *target) {
-  uint8_t success;
-  uint8_t buf[4];
-  
-
-  success = readBytes(GOODIX_REG_ID, buf, 4);
-  readBytes(GT_REG_DATA, (uint8_t *) &info, sizeof(info));
-  if (!success) {
-    return success;
+  // Lee una sola vez el bloque y copia el ID en el buffer del llamador.
+  if (target == nullptr || readInfo() == nullptr) {
+    return 1;
   }
 
-  memcpy(target, buf, 4);
+  memcpy(target, info.productId, sizeof(info.productId));
   target[4] = 0;
   return 0;
 }
 
-/**
-   goodix_i2c_test - I2C test function to check if the device answers.
-*/
+// Comprueba que el sensor responde leyendo un byte de configuración por I2C.
 uint8_t Goodix::test() {
+  // Lee un byte del bloque de configuración para comprobar la comunicación I2C.
   uint8_t testByte;
   return readBytes(GOODIX_REG_CONFIG_DATA,  &testByte, 1);
 }
 
-uint8_t Goodix::calcChecksum(uint8_t* buf, uint8_t len) {
+uint8_t Goodix::calcChecksum(const uint8_t* buf, uint8_t len) {
+  // El complemento a dos hace que la suma del bloque más este byte resulte cero
+  // módulo 256, como espera el controlador Goodix.
   uint8_t ccsum = 0;
   for (uint8_t i = 0; i < len; i++) {
     ccsum += buf[i];
@@ -122,14 +119,17 @@ uint8_t Goodix::calcChecksum(uint8_t* buf, uint8_t len) {
 }
 
 uint8_t Goodix::readChecksum() {
-	
+	// El mapa de configuración se lee en dos tramos porque la dirección central tiene
+	// un registro de checksum separado que no forma parte del bloque de datos.
 	uint8_t len1 = GOODIX_REG_CONFIG_MIDDLE - GOODIX_REG_CONFIG_DATA +1;
 	uint8_t len2 = GOODIX_REG_CONFIG_END - GOODIX_REG_CONFIG_MIDDLE;
 	uint8_t buf1[len1];
 	uint8_t buf2[len2];
 	uint8_t buf[len1+len2];
-	readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1);
-    readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2);
+	if (!readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1) ||
+        !readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2)) {
+        return 0;
+    }
     memcpy(buf, buf1, sizeof(buf1));
 	memcpy(buf+sizeof(buf1), buf2, sizeof(buf2));	
   	
@@ -137,6 +137,7 @@ uint8_t Goodix::readChecksum() {
 }
 
 void Goodix::fwResolution(uint16_t maxX, uint16_t maxY) {
+	// Cambia la resolución X/Y en la copia de la configuración y escribe su checksum.
 	uint8_t len1 = GOODIX_REG_CONFIG_MIDDLE - GOODIX_REG_CONFIG_DATA +1;
 	uint8_t len2 = GOODIX_REG_CONFIG_END - GOODIX_REG_CONFIG_MIDDLE;
 	uint8_t buf1[len1];
@@ -144,8 +145,10 @@ void Goodix::fwResolution(uint16_t maxX, uint16_t maxY) {
 	uint8_t buf3[2];
 	uint8_t buf[len1+len2];
 	
-	readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1);
-    readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2);
+	if (!readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1) ||
+        !readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2)) {
+        return;
+    }
     memcpy(buf, buf1, sizeof(buf1));
 	memcpy(buf+sizeof(buf1), buf2, sizeof(buf2));
 
@@ -157,12 +160,14 @@ void Goodix::fwResolution(uint16_t maxX, uint16_t maxY) {
 	buf3[0] = calcChecksum(buf, len1+len2);
     buf3[1] = 0x01;
 
-	writeBytes(GOODIX_REG_CONFIG_DATA, buf, len1+len2);
-    writeBytes(GOODIX_REG_CONFIG_END+1, buf3, 2);
+    if (writeBytes(GOODIX_REG_CONFIG_DATA, buf, len1+len2)) {
+        writeBytes(GOODIX_REG_CONFIG_END+1, buf3, 2);
+    }
 }
 
 uint8_t Goodix::configCheck(bool configVersion) {
-	
+	// Comprueba que responde un controlador compatible y valida checksum; cuando se
+	// solicita, además compara la configuración con el perfil LilyPi incluido.
 	uint8_t len1 = GOODIX_REG_CONFIG_MIDDLE - GOODIX_REG_CONFIG_DATA +1;
 	uint8_t len2 = GOODIX_REG_CONFIG_END - GOODIX_REG_CONFIG_MIDDLE;
 	uint8_t buf1[len1];
@@ -171,21 +176,28 @@ uint8_t Goodix::configCheck(bool configVersion) {
 	uint8_t diff = 0;
 	uint8_t calc_check_sum;
 	uint8_t read_check_sum[1];
-	char prodID[5];
+	char prodID[5] = {};
 	
-    write(GOODIX_REG_COMMAND, 0);
+    if (!write(GOODIX_REG_COMMAND, 0)) {
+        return 1;
+    }
     
-    productID(prodID);
+    if (productID(prodID) != 0)
+    {
+        return 1;
+    }
     if (prodID[0] != '9')
     {
 	    return (prodID[0]);
     }
-    readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1);
-    readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2);
+    if (!readBytes(GOODIX_REG_CONFIG_DATA, buf1, len1) ||
+        !readBytes(GOODIX_REG_CONFIG_MIDDLE+1, buf2, len2) ||
+        !readBytes(GOODIX_REG_CONFIG_END+1, read_check_sum, 1)) {
+        return 1;
+    }
     memcpy(buf, buf1, sizeof(buf1));
 	memcpy(buf+sizeof(buf1), buf2, sizeof(buf2));	
 	calc_check_sum = calcChecksum(buf, len1+len2);
-	readBytes(GOODIX_REG_CONFIG_END+1, read_check_sum, 1);
 	
 	if (configVersion)
 	{
@@ -205,35 +217,49 @@ uint8_t Goodix::configCheck(bool configVersion) {
 }
 
 void Goodix::configUpdate() {
-	
+	// Aplica el perfil LilyPi únicamente al modelo cuyo ID de producto empieza por '9'.
 	uint8_t len1 = GOODIX_REG_CONFIG_MIDDLE - GOODIX_REG_CONFIG_DATA +1;
 	uint8_t len2 = GOODIX_REG_CONFIG_END - GOODIX_REG_CONFIG_MIDDLE;
 	uint8_t buf[2];
-	char prodID[5];
+	char prodID[5] = {};
 
     buf[0] = calcChecksum(LilyPi_config, len1+len2);
     buf[1] = 0x01;
-    write(GOODIX_REG_COMMAND, 0);
-    productID(prodID);
-    if (prodID[0] != '9')
+    if (!write(GOODIX_REG_COMMAND, 0) ||
+        productID(prodID) != 0 || prodID[0] != '9')
     {
 	    return;
     }
-    writeBytes(GOODIX_REG_CONFIG_DATA, LilyPi_config, len1+len2);
-    writeBytes(GOODIX_REG_CONFIG_END+1, buf, 2);
+    if (writeBytes(GOODIX_REG_CONFIG_DATA, LilyPi_config, len1+len2)) {
+        writeBytes(GOODIX_REG_CONFIG_END+1, buf, 2);
+    }
 }
 
 GTConfig* Goodix::readConfig() {
-  readBytes(GT_REG_CFG, (uint8_t *) &config, sizeof(config));
-  return &config;
+  // Lee el bloque de configuración del sensor en la estructura pública config.
+  return readBytes(GT_REG_CFG, (uint8_t *) &config, sizeof(config)) ? &config : nullptr;
 }
 
 GTInfo* Goodix::readInfo() {
-  readBytes(GT_REG_DATA, (uint8_t *) &info, sizeof(info));
+  // Lee identificación, versión y resolución reportadas por el controlador.
+  uint8_t rawInfo[11];
+  if (!readBytes(GT_REG_DATA, rawInfo, sizeof(rawInfo))) {
+    return nullptr;
+  }
+  memcpy(info.productId, rawInfo, sizeof(info.productId));
+  info.fwId = static_cast<uint16_t>(rawInfo[4]) |
+              (static_cast<uint16_t>(rawInfo[5]) << 8);
+  info.xResolution = static_cast<uint16_t>(rawInfo[6]) |
+                     (static_cast<uint16_t>(rawInfo[7]) << 8);
+  info.yResolution = static_cast<uint16_t>(rawInfo[8]) |
+                     (static_cast<uint16_t>(rawInfo[9]) << 8);
+  info.vendorId = rawInfo[10];
   return &info;
 }
 
 void Goodix::onIRQ() {
+  // Lee el informe de contactos, convierte los pares de bytes little-endian y entrega
+  // hasta cinco puntos al callback registrado; al final libera el registro de datos.
   int16_t contacts;
   uint8_t rawdata[GOODIX_MAX_CONTACTS * GOODIX_CONTACT_SIZE]; //points buffer
 
@@ -246,37 +272,25 @@ void Goodix::onIRQ() {
   	
     if (contacts > 0) {
     
-	points[0].trackId = rawdata[1];	    
-    points[0].x = ((uint16_t)rawdata[3] << 8) + rawdata[2];
-    points[0].y = ((uint16_t)rawdata[5] << 8) + rawdata[4];
-    points[0].area = ((uint16_t)rawdata[7] << 8) + rawdata[6];
-    
-    points[1].trackId = rawdata[9];
-    points[1].x = ((uint16_t)rawdata[11] << 8) + rawdata[10];
-    points[1].y = ((uint16_t)rawdata[13] << 8) + rawdata[12];
-    points[1].area = ((uint16_t)rawdata[15] << 8) + rawdata[14];
+	for (int8_t i = 0; i < contacts; ++i) {
+	  const uint8_t offset = 1 + i * GOODIX_CONTACT_SIZE;
+	  points[i].trackId = rawdata[offset];
+	  points[i].x = ((uint16_t)rawdata[offset + 2] << 8) | rawdata[offset + 1];
+	  points[i].y = ((uint16_t)rawdata[offset + 4] << 8) | rawdata[offset + 3];
+	  points[i].area = ((uint16_t)rawdata[offset + 6] << 8) | rawdata[offset + 5];
+	  points[i].reserved = 0;
+	}
 
-    points[2].trackId = rawdata[17];
-    points[2].x = ((uint16_t)rawdata[19] << 8) + rawdata[18];
-    points[2].y = ((uint16_t)rawdata[21] << 8) + rawdata[20];
-	points[2].area = ((uint16_t)rawdata[23] << 8) + rawdata[22];
-    
-    points[3].trackId = rawdata[25];
-    points[3].x = ((uint16_t)rawdata[27] << 8) + rawdata[26];
-    points[3].y = ((uint16_t)rawdata[29] << 8) + rawdata[28];
-    points[3].area = ((uint16_t)rawdata[31] << 8) + rawdata[30];
-
-    points[4].trackId = rawdata[33];
-    points[4].x = ((uint16_t)rawdata[35] << 8) + rawdata[34];
-    points[4].y = ((uint16_t)rawdata[37] << 8) + rawdata[36]; 
-    points[4].area = ((uint16_t)rawdata[39] << 8) + rawdata[38];
-    
-    touchHandler(contacts, points);
+    if (touchHandler != nullptr) {
+      touchHandler(contacts, points);
+    }
 	}
 	write(GOODIX_READ_COORD_ADDR, 0);
 }
 
 void Goodix::loop() {
+  // Copia y limpia la marca atómica con interrupciones deshabilitadas para evitar
+  // perder una notificación mientras se procesa el informe anterior.
   noInterrupts();
   bool irq = goodixIRQ;
   goodixIRQ = false;
@@ -287,67 +301,105 @@ void Goodix::loop() {
   }
 }
 
-#define EAGAIN 100 			// Try again error
-#define I2C_READ_ERROR 155 // I2C read error
+#define GOODIX_TRY_AGAIN 100
+#define GOODIX_I2C_READ_ERROR 155
 
 int16_t Goodix::readInput(uint8_t *regState) {
-  int touch_num;
-  int error;
-
-  error = readBytes(GOODIX_READ_COORD_ADDR, regState, GOODIX_CONTACT_SIZE * GOODIX_MAX_CONTACTS);
-  touch_num = regState[0] & 0xF;
-
-  if (!error) {
-    return -I2C_READ_ERROR;
+  // La bandera 0x80 indica que el controlador tiene un informe nuevo; los cuatro bits
+  // inferiores contienen la cantidad de contactos activos.
+  if (regState == nullptr ||
+      !readBytes(GOODIX_READ_COORD_ADDR, regState, GOODIX_CONTACT_SIZE * GOODIX_MAX_CONTACTS)) {
+    return -GOODIX_I2C_READ_ERROR;
   }
 
-  if (!(regState[0] & 0x80))
-  {	  
-    return -EAGAIN;
+  if (!(regState[0] & 0x80)) {
+    return -GOODIX_TRY_AGAIN;
   }
 
-  return touch_num;
+  const uint8_t touchCount = regState[0] & 0x0F;
+  return touchCount > GOODIX_MAX_CONTACTS ? GOODIX_MAX_CONTACTS : touchCount;
 }
 
 //----- Utils -----
 void Goodix::i2cStart(uint16_t reg) {
+	// Inicia una transacción y coloca primero el byte alto de la dirección del registro.
 	Wire.beginTransmission(i2cAddr);
     Wire.write(reg >> 8);
     Wire.write(reg & 0xFF);
 }
 
 bool Goodix::write(uint16_t reg, uint8_t buf) {
+  // Escribe un byte en el registro indicado.
   i2cStart(reg);
-  Wire.write(buf);
-  return (Wire.endTransmission() != 0);
+  const bool accepted = Wire.write(buf) == 1;
+  const uint8_t result = Wire.endTransmission();
+  return accepted && result == 0;
 }
 
-bool Goodix::writeBytes(uint16_t reg, uint8_t *data, int nbytes)
+bool Goodix::writeBytes(uint16_t reg, const uint8_t *data, int nbytes)
 {
-	i2cStart(reg);
-    for (int i = 0; i < nbytes; i++) {
-        Wire.write(data[i]);
+	// Escribe de forma contigua un bloque en el registro indicado.
+	if (data == nullptr || nbytes <= 0 ||
+        nbytes > 0x10000L - static_cast<uint32_t>(reg) ||
+        I2C_BUFFER_LENGTH <= 2) {
+		return false;
+	}
+
+    const int maxPayload = I2C_BUFFER_LENGTH - 2;
+    for (int offset = 0; offset < nbytes; ) {
+        const int chunk = min(nbytes - offset, maxPayload);
+        i2cStart(static_cast<uint16_t>(reg + offset));
+        if (Wire.write(data + offset, chunk) != static_cast<size_t>(chunk)) {
+            Wire.endTransmission();
+            return false;
+        }
+        if (Wire.endTransmission() != 0) {
+            return false;
+        }
+        offset += chunk;
     }
-    return (Wire.endTransmission() != 0);
+    return true;
 }
 
 bool Goodix::readBytes(uint16_t reg, uint8_t *data, int nbytes)
 {
-	i2cStart(reg);
-    Wire.endTransmission();
-    Wire.requestFrom(i2cAddr, (uint8_t )nbytes);
-    int index = 0;
-    while (Wire.available())
-    {
-        data[index++] = Wire.read();
+	// Selecciona el registro, solicita el bloque y devuelve true solo si llegaron todos
+	// los bytes pedidos.
+	if (data == nullptr || nbytes <= 0 ||
+        nbytes > 0x10000L - static_cast<uint32_t>(reg) ||
+        I2C_BUFFER_LENGTH <= 0) {
+		return false;
+	}
+
+    for (int offset = 0; offset < nbytes; ) {
+        const int chunk = min(nbytes - offset, I2C_BUFFER_LENGTH);
+        i2cStart(static_cast<uint16_t>(reg + offset));
+        if (Wire.endTransmission() != 0) {
+            return false;
+        }
+        const uint8_t requested = Wire.requestFrom(i2cAddr, static_cast<uint8_t>(chunk));
+        int received = 0;
+        while (Wire.available() && received < chunk) {
+            data[offset + received] = Wire.read();
+            ++received;
+        }
+        if (requested != chunk || received != chunk) {
+            while (Wire.available()) {
+                Wire.read();
+            }
+            return false;
+        }
+        offset += chunk;
     }
-    return (nbytes == index);
+    return true;
 }
 
 void Goodix::msSleep(uint16_t milliseconds) {
+  // Abstracción de espera en milisegundos usada por la secuencia de reset.
   delay(milliseconds);
 }
 
 void Goodix::usSleep(uint16_t microseconds) {
+  // Abstracción de espera corta en microsegundos usada por la secuencia de reset.
   delayMicroseconds(microseconds);
 }

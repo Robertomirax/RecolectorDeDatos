@@ -2,6 +2,13 @@
 #define _METODOS_H_
 
 /*****************************************************************************************
+ * Este archivo reúne la lógica de aplicación del recolector: configuración global,
+ * comunicación con el servidor, pantallas, teclado táctil, lector de códigos y Wi-Fi.
+ * Se incluye desde main.cpp; por eso aquí también se definen las variables compartidas
+ * por esas rutinas.
+ *****************************************************************************************/
+
+/*****************************************************************************************
  * Antes de publicar verificar:
  * 1- Versión del firmware
  * 2- servidor
@@ -10,10 +17,10 @@
  *
  * Para actualizar el firmware:
  * Colocar el número correspondiente a la nueva versión de firmware en FIRM_VERSION
- * Compilar el programa y subir al servidor el archivo firmware.bin con el nombre
+ * Compilar el programa y subir al servidor en newfac/RD01/ el archivo firmware.bin con el nombre
  * firm(version).bin ejemplo: firm25.bin que se encuentra en
  * .pio\build\esp32doit-devkit-v1/firmware.bin
- * Modificar el archivo firm.json del servidor, cambiando el valor de version por la nueva versión
+ * Modificar el archivo firm.json en la misma carpeta del servidor, cambiando el valor de version por la nueva versión
  * El firmware se actualizará automáticamente al encender la terminal
  *****************************************************************************************/
 
@@ -25,19 +32,22 @@
 #include <U8g2lib.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <ArduinoJson.h>
-#include "esp_ota_ops.h"
-#include "esp_https_ota.h"
-#include "certificado.h"
+#include "esp_system.h"
+#include <string.h>
 
-// pines
+constexpr size_t MAX_SCANNER_CODE_LENGTH = 256;
+constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 15000;
+
+// Pines y buses conectados al hardware del recolector.
 #define VOLTAJE 35 // Voltaje de la batería
 #define ONOFF 26   // Control de apagado 1=encendido 0=apagado
 #define RXD2 16    // RX para el lector de barras
 #define TXD2 17    // TX para el lector de barras
 #define INT_PIN 5  // INT del touch del display
 #define RST_PIN 27 // Reset del touch del display
-// pines display
+// Bus SPI y señales de control del display ILI9488.
 #define display_SCK 18
 #define display_MOSI 23
 #define display_MISO 19
@@ -47,47 +57,49 @@
 // fin pines display
 // fin pines
 
-// constantes
+// Parámetros operativos que se revisan al preparar una publicación.
 #define FIRM_VERSION 16 // Versión del firmware actualmente instalado. Debe ser un número entero
 #define APAGADO 240     // tiempo en segundos tras el cual se apaga si no se toca ningún botón
 
-//String servidor = "";
-String servidor = "192.168.101.64"; // newfac de pruebas
+String servidor = "";
+//String servidor = "192.168.101.64"; // newfac de pruebas
 // String servidor = "192.168.2.3"; // newfac
 
-// estados
+// Valores de estado reconocidos localmente por la interfaz.
 #define INICIO 0     // Estado inicial despues del encendido o reset.
 #define APAGANDO 100 // Se presionó el botón de apagar y está esperando confirmación
 // fin estados
 
-// fin constantes
-
-// Crear instancias y variables
+// Periféricos y datos compartidos por las rutinas del firmware.
 Preferences preferences; // objeto que maneja el almacenamiento en flash de los parámetros
 DynamicJsonDocument doc(16384);
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
-String visor = "";
+// El display se comunica por SPI; la clase Goodix usa Wire/I2C para el panel táctil.
 Arduino_ESP32SPI bus = Arduino_ESP32SPI(display_DC, display_CS, display_SCK, display_MOSI, display_MISO); // objeto que maneja la conexión SPI con el display
 Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, display_RESET, 0, false);                     // objeto que maneja el display ILI9488
+// Credenciales se cargan de Preferences y palabra acumula bytes del lector hasta CR.
 String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
+bool scannerInputOverflow = false; // El código actual excedió el límite y se descarta al recibir CR.
+bool wifiStarted = false;          // Evita reintentos si todavía no hay credenciales configuradas.
+bool wifiConnectionHandled = false; // Impide repetir las acciones asociadas a una conexión establecida.
+bool firmwareCheckDone = false;    // Limita la comprobación OTA a una vez por arranque.
+uint32_t lastWiFiReconnectAttempt = 0;
 byte estado = 0;     // estado en el que se encuentra el recolector de datos
 int codigo = 0;      // código del producto leido por el escaner
 char ubicacion[100]; // ubicacion leida del producto para el inventario
 int idIndice = 0;    // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
-bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
 int voltaje = 0;                 // voltaje de la batería
 int cantidad = 0;                // cantidad escrita en el teclado numérico
 int maximo_subir = 0;            // cantidad máxima de unidades que se pueden subir al entrepiso en una operación
 
-//  fin Crear instancias y variables
-
-// declaración de funciones ---------------------------------------------------
+// Declaraciones adelantadas: las implementaciones permanecen agrupadas en este archivo
+// aunque algunas rutinas llamen a funciones que aparecen más adelante.
 void verificaFirmware();
 void actualizaFirmware(uint16_t version);
 void handleTouch(int8_t contacts, GTPoint *points);
@@ -95,8 +107,11 @@ void touchStart();
 void teclado(int tecla);
 int tocoPantalla(uint16_t x, uint16_t y);
 bool conectarWiFi();
+void gestionarWiFi();
+bool copiarTextoSeguro(char *destino, size_t capacidad, const char *origen);
+String codificarValorFormulario(const String &valor, bool conservarSeparadores = false);
 void leerEscaner();
-String getStringPartByNr(String data, char separator, int index);
+String getStringPartByNr(const String &data, char separator, int index);
 void requiereServidor(String c);
 void ejecutaComandos(JsonArray arr);
 void teclaApagado(int posx = 45, int posy = 422);
@@ -105,83 +120,86 @@ void apagando(); // pantalla de verificación de apagado
 void escanerOn();
 void escanerOff();
 void configEscaner();
-bool enviaComando(byte com[], int largo);
+bool enviaComando(byte com[], int largo, byte maxIntentos = 5);
 void teclaListo(int posx, int posy);
 void teclaBasura(int posx, int posy);
 void tecladoNumerico(int aux1, int aux2, int aux3, int aux4);
 void teclaSuspender(int posx, int posy);
 void dibujaTeclado(char botx, char boty, uint color, bool fondo);
 void poneNumeros();
-// fin declaración de funciones -----------------------------------------------
 
-// comprueba si hay actualizaciones del firmware y las instala
+/**
+ * Consulta firm.json en el servidor configurado y compara su versión con FIRM_VERSION.
+ * Si hay una versión posterior inicia la instalación OTA; ante errores HTTP vuelve a
+ * consultar un número limitado de veces.
+ */
 void verificaFirmware()
 {
-    // leer el archivo json del servidor donde indica cual es la última versión del firmware
-    // si es distinta de la instalada, la actualiza con la rutina actualizarFirmware()
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("Se omite la comprobación OTA: Wi-Fi desconectado");
+        return;
+    }
 
-    int intento = 0;
-    while (intento < 5) // hace 5 intentos de conectarse al servidor
+    for (uint8_t intento = 1; intento <= 5; ++intento)
     {
         HTTPClient http;
-        ++intento;
-        String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
+        http.setConnectTimeout(5000);
+        http.setTimeout(8000);
 
-        String servi = "http://" + servidor + "/newfac/RD01/firm.json?r=" + rand;
-        Serial.println(servi);
-
-        http.begin(servi);         // La url
-        int httpCode = http.GET(); // Hacer el requerimiento
-
-        if (httpCode == 200)
+        // El valor aleatorio evita reutilizar un manifiesto almacenado en caché.
+        String url = "http://" + servidor + "/newfac/RD01/firm.json?r=" + String(esp_random());
+        if (!http.begin(url))
         {
-            String payload = http.getString();
-            Serial.println(payload);
-
-            // decodifica el json --------------------------------------
-            const char *respuesta = payload.c_str();
-            deserializeJson(doc, F(respuesta));
-            JsonObject obj = doc.as<JsonObject>();
-
-            uint16_t version = obj[F("version")];
-
-            if (version > FIRM_VERSION) // Si hay una versión con un número mas grande del firmware en el servidor actualizamos
+            Serial.println("No se pudo inicializar la consulta del manifiesto OTA");
+        }
+        else
+        {
+            const int httpCode = http.GET();
+            if (httpCode == HTTP_CODE_OK)
             {
-                actualizaFirmware(version);
+                doc.clear();
+                DeserializationError error = deserializeJson(doc, http.getStream());
+                http.end();
+
+                if (error || !doc.is<JsonObject>() || !doc["version"].is<uint16_t>())
+                {
+                    Serial.println("Manifiesto OTA inválido o incompleto");
+                }
+                else
+                {
+                    const uint16_t version = doc["version"].as<uint16_t>();
+                    if (version > FIRM_VERSION)
+                    {
+                        actualizaFirmware(version);
+                    }
+                    else
+                    {
+                        Serial.println("El firmware actual es la última versión");
+                    }
+                    return;
+                }
             }
             else
             {
-                Serial.println("El firmware actual es la ultima version");
-                http.end(); // cierra la conexión con el servidor
+                Serial.print("Error al consultar manifiesto OTA: ");
+                Serial.println(httpCode);
+                http.end();
             }
-            break;
         }
-        else // el servidor respondió con error
+
+        if (intento < 5)
         {
-            Serial.print("error de respuesta del servidor ");
-            Serial.println(httpCode);
-            Serial.print("intento: ");
-            Serial.println(intento);
+            delay(250);
         }
-        http.end(); // cierra la conexión con el servidor
     }
-    if (intento == 10)
-    {
-        Serial.println("se intentó 10 veces la conexión al servidor"); // mensaje de error al intentar conectarse al servidor 10 veces
-        // guardar motivo del reset (_3) en preferences
-        preferences.begin("parametros", false);
-        preferences.putString("reset", "_3");
-        preferences.end();
-        esp_restart(); // Resetea el esp32
-    }
+    Serial.println("No se pudo verificar si hay una actualización OTA");
 }
 
-/**************************************************************************************/
-/*!
-    @brief   actualiza el firmware
-    @param   version número de la versión a actualizar
-*/
-/*************************************************************************************/
+/**
+ * Descarga la imagen firm<version>.bin por HTTP y muestra el estado en pantalla.
+ * Si la actualización termina correctamente, guarda el motivo del reinicio.
+ */
 void actualizaFirmware(uint16_t version)
 {
     // pantalla actualizando firmware
@@ -199,16 +217,16 @@ void actualizaFirmware(uint16_t version)
 
     String servi = "http://" + servidor + "/newfac/RD01/firm" + version + ".bin?v=" + azar;
 
-    const char *servi2 = servi.c_str();
+    Serial.println(servi);
 
-    esp_http_client_config_t ota_client_config = {
-        .url = servi2,
-        .cert_pem = root_ca,
-    };
-    Serial.println(ota_client_config.url);
+    // HTTPUpdate descarga y escribe la imagen en la partición OTA inactiva.
+    // Se desactiva el reinicio automático para guardar el motivo y reiniciar aquí.
+    WiFiClient cliente;
+    HTTPUpdate actualizador;
+    actualizador.rebootOnUpdate(false);
+    t_httpUpdate_return resultado = actualizador.update(cliente, servi);
 
-    esp_err_t ret = esp_https_ota(&ota_client_config); // Actualiza el firmware
-    if (ret == ESP_OK)
+    if (resultado == HTTP_UPDATE_OK)
     {
         printf("ACTUALIZACION OTA OK, reseteando...\n");
         configEscaner();
@@ -221,10 +239,15 @@ void actualizaFirmware(uint16_t version)
     else
     {
         printf("FALLO en la actualizacion OTA ...\n");
+        Serial.print("Error OTA HTTP: ");
+        Serial.println(actualizador.getLastErrorString());
     }
 }
 
-// rutina que se ejecuta al tocar la pantalla
+/**
+ * Callback de Goodix: filtra lecturas demasiado cercanas y convierte cada coordenada
+ * recibida en el identificador de tecla usado por la máquina de estados.
+ */
 void handleTouch(int8_t contacts, GTPoint *points)
 {
     // verificar que se levantó el dedo
@@ -243,9 +266,12 @@ void handleTouch(int8_t contacts, GTPoint *points)
     tiempoUltNum = tiempoNum;
 }
 
+// Inicializa el digitalizador y deja en el puerto serie el resultado del ACK I2C
+// y de la comprobación de compatibilidad/checksum de su configuración.
 void touchStart()
 {
     unsigned short configInfo;
+    // Inicializa el controlador con los pines y la dirección I2C del panel instalado.
     touch.begin(INT_PIN, RST_PIN, GOODIX_I2C_ADDR_BA);
     Serial.print("Check ACK on addr request on 0x");
     Serial.print(touch.i2cAddr, HEX);
@@ -270,12 +296,10 @@ void touchStart()
     }
 }
 
-/***************************************************************************************/
-/*!
-    @brief   Se ejecuta al tocar una tecla en la pantalla
-    @param   tecla número o letra tocada
-*/
-/***************************************************************************************/
+/**
+ * Despacha una tecla según el estado actual: confirmación de apagado, teclado numérico
+ * de configuración/cantidad o acción solicitada al servidor.
+ */
 void teclado(int tecla)
 {
     Serial.print("tecla: ");
@@ -306,6 +330,7 @@ void teclado(int tecla)
             // define servidor
             preferences.begin("credenciales", false);
             servidor = preferences.getString("servidor", "");
+            preferences.end();
 
             estado = INICIO;
             display.fillScreen(BLACK);
@@ -339,13 +364,17 @@ void teclado(int tecla)
             Serial.println(cantidad);
             if (cantidad == 753064) // clave correcta cambia al servidor 101.64 (pruebas)
             {
+                Serial.println("cambiando al servidor 101.64");
                 preferences.begin("credenciales", false);
                 preferences.putString("servidor", "192.168.101.64");
+                preferences.end();
             }
             else if (cantidad == 753003) // clave correcta cambia al servidor 2.3 (apumanque)
             {
+                Serial.println("cambiando al servidor 2.3");
                 preferences.begin("credenciales", false);
                 preferences.putString("servidor", "192.168.2.3");
+                preferences.end();
             }
             else
             {
@@ -441,7 +470,7 @@ void teclado(int tecla)
 /***************************************************************************************/
 bool conectarWiFi()
 {
-    bool ok = false;
+    // Las claves se guardan en la partición NVS bajo el espacio "credenciales".
     preferences.begin("credenciales", false);
     ssid = preferences.getString("ssid", "");
     password = preferences.getString("password", "");
@@ -454,6 +483,8 @@ bool conectarWiFi()
 
     if (ssid == "" || password == "")
     {
+        wifiStarted = false;
+        wifiConnectionHandled = false;
         Serial.println("No existen Credenciales WiFi guardadas!");
         // mostrar mensaje en pantalla indicando que faltan credenciales de red
         display.fillScreen(BLACK);
@@ -465,109 +496,86 @@ bool conectarWiFi()
         display.println("FALTAN LAS");
         display.println("CREDENCIALES");
         display.println("DE RED");
-        ok = false;
-        // Leer los datos provenientes del escaner si están disponibles
-        while (Serial2.available())
-        {
-            leerEscaner();
-        }
-        touch.loop();
+        return false;
     }
-    else
+
+    display.fillScreen(BLACK);
+    display.setCursor(0, 60);
+    display.setFont(u8g2_font_maniac_te);
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.println();
+    display.println("CONECTANDO");
+    display.print("A ");
+    display.setTextColor(YELLOW);
+    display.println(ssid);
+    teclaApagado(45, 422);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(ssid.c_str(), password.c_str());
+    wifiStarted = true;
+    wifiConnectionHandled = false;
+    lastWiFiReconnectAttempt = millis();
+    return WiFi.status() == WL_CONNECTED;
+}
+
+// Mantiene Wi-Fi sin bloquear el ciclo principal y realiza una acción una vez por conexión.
+void gestionarWiFi()
+{
+    if (!wifiStarted)
     {
-        // Conectarse
-        display.fillScreen(BLACK);
-        byte intentos = 0;
-        WiFi.mode(WIFI_STA);
-        Serial.println(ssid.c_str());
-        Serial.println(password.c_str());
-        WiFi.begin(ssid.c_str(), password.c_str());
-        Serial.println("Credenciales cargadas de memoria!\nConectando al WiFi");
+        return;
+    }
 
-        display.setCursor(0, 60);
-        display.setFont(u8g2_font_maniac_te);
-        display.setTextSize(1);
-        display.setTextColor(WHITE);
-        display.println();
-        display.println("CONECTANDO");
-        display.print("A ");
-        display.setTextColor(YELLOW);
-        display.println(ssid);
-        teclaApagado(45, 422);
-
-        do
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        if (!wifiConnectionHandled)
         {
-            WiFi.reconnect();
-            Serial.println("reconectando");
-            escanerOn();
-            for (size_t i = 0; i < 300; i++)
-            {
-                // ver si se tocó el display
-                touch.loop();
-                delay(10);
-
-                // Leer los datos provenientes del escaner si están disponibles
-                while (Serial2.available())
-                {
-                    leerEscaner();
-                }
-            }
-            intentos += 1;
-
-        } while ((WiFi.status() != WL_CONNECTED) and (intentos < 20));
-
-        if ((WiFi.status() == WL_CONNECTED))
-        {
-            ok = true;
+            wifiConnectionHandled = true;
             display.fillScreen(BLACK);
             teclaApagado();
             estado = INICIO;
-            requiereServidor("0&tecla=-1");
-            Serial.println();
             Serial.println(WiFi.localIP());
             Serial.println("Conectado");
+            requiereServidor("0&tecla=-1");
+
+            if (!firmwareCheckDone)
+            {
+                firmwareCheckDone = true;
+                verificaFirmware();
+            }
         }
-        else
-        {
-            ok = false;
-            Serial.print("Error, no es posible conectarse al wifi ");
-            Serial.println(ssid.c_str());
-            touch.loop();
-            delay(10);
-            // guardar motivo del reset (_4) en preferences
-            preferences.begin("parametros", false);
-            preferences.putString("reset", "_4");
-            preferences.end();
-            // esp_restart(); // Resetea el esp32
-            digitalWrite(ONOFF, LOW); // apagar
-            delay(5000);
-        }
+        return;
     }
-    return ok;
+
+    wifiConnectionHandled = false;
+    const uint32_t now = millis();
+    if (static_cast<uint32_t>(now - lastWiFiReconnectAttempt) >= WIFI_RECONNECT_INTERVAL_MS)
+    {
+        lastWiFiReconnectAttempt = now;
+        Serial.println("Reintentando conexión Wi-Fi");
+        WiFi.reconnect();
+    }
 }
 
 void cambiarSsid(String ssid, String password)
 {
-    // Guardar/reemplazar namespace
+    // Reemplaza las credenciales guardadas y vuelve a iniciar la conexión; el lector
+    // se reactiva al terminar para que el usuario pueda volver a escanear códigos.
     preferences.begin("credenciales", false);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
     preferences.end();
     Serial.println("Se guardaron las Credenciales\n.");
     conectarWiFi();
+    escanerOn();
 }
 
-/***************************************************************************************/
-/*!
-    @brief   Dibuja el teclado en la pantalla
-    @param   botx cantidad de botones en la horizontal
-    @param   boty cantidad de botones en la vertical
-    @param   s separación horizontal entre botones
-    @param   v separación vertical entre botones
-    @param   color color del botón 16-bit 5-6-5
-    @param   fondo fondo del botón vacío = false o lleno = true
-*/
-/***************************************************************************************/
+/**
+ * Dibuja una cuadrícula centrada en el display. `fondo` elige entre botones rellenos
+ * y contornos; la aplicación usa normalmente cuatro columnas y cuatro filas.
+ */
 void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo = false)
 {
     int16_t ancho = 320;
@@ -578,10 +586,10 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
     char s = 4;
     char v = 4;
 
-    int16_t d = (ancho - 2 * x - (botx - 1) * s) / botx; // ancho del bot�n
+    int16_t d = (ancho - 2 * x - (botx - 1) * s) / botx; // ancho del botón
     x = (ancho - d * botx - s * (botx - 1)) / 2;         // distancia desde el margen izquierdo
 
-    int16_t h = (alto - x - y - (boty - 1) * v) / boty; // alto del bot�n
+    int16_t h = (alto - x - y - (boty - 1) * v) / boty; // alto del botón
 
     for (size_t i = 0; i < botx; i++)
     {
@@ -607,6 +615,7 @@ void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo 
     @return  devuelve la tecla tocada
 */
 /***************************************************************************************/
+// Traduce coordenadas (x,y) del digitalizador a índices 0..15 de la cuadrícula táctil.
 int tocoPantalla(uint16_t x, uint16_t y)
 {
     tiempo_encendido = esp_timer_get_time() / 1000000; // reseteo el tiempo de inactividad
@@ -699,15 +708,12 @@ int tocoPantalla(uint16_t x, uint16_t y)
     return numero;
 }
 
-/***************************************************************************************/
-/*!
-    @brief   Dibuja la pantalla número 1
-*/
-/***************************************************************************************/
+// Dibuja el teclado numérico en el orden visual 7-8-9, 4-5-6, 1-2-3, 0;
+// los botones de confirmar y borrar ocupan las posiciones de acción de la cuadrícula.
 void poneNumeros()
 {
 
-    // n�meros
+    // números
     display.setFont(u8g2_font_inb33_mf);
     display.setTextSize(1);
     display.setTextColor(YELLOW);
@@ -755,16 +761,33 @@ void poneNumeros()
     @brief   Lee los datos recibidos desde el escaner
 */
 /*************************************************************************************/
+// Acumula bytes UART hasta CR; reconoce códigos QR de Wi-Fi o envía el dato escaneado.
 void leerEscaner()
 {
-    letra = Serial2.read();
+    const int byteRecibido = Serial2.read();
+    if (byteRecibido < 0)
+    {
+        return;
+    }
+    letra = static_cast<byte>(byteRecibido);
 
     if (letra == 13)
     {
-        Serial.println(palabra);
-
         // deshabilita el escaner
         escanerOff();
+
+        if (scannerInputOverflow)
+        {
+            Serial.println("Código del escáner descartado: excede el tamaño máximo");
+            palabra = "";
+            scannerInputOverflow = false;
+            while (Serial2.available() > 0)
+            {
+                Serial2.read();
+            }
+            escanerOn();
+            return;
+        }
 
         //  comprobar si es un comando el código leido
 
@@ -775,9 +798,6 @@ void leerEscaner()
 
             password = getStringPartByNr(palabra, ';', 2);
             password = password.substring(2); // rescata el password
-
-            Serial.println(ssid);
-            Serial.println(password);
 
             palabra = "";
             cambiarSsid(ssid, password);
@@ -795,9 +815,22 @@ void leerEscaner()
             Serial2.read();
         palabra = "";
     }
-    else
+    else if (letra < 0x20 || letra > 0x7E)
     {
-        palabra = palabra + char(letra);
+        // Los códigos son ASCII imprimible; los demás bytes son restos de ACKs del lector.
+        return;
+    }
+    else if (!scannerInputOverflow)
+    {
+        if (palabra.length() < MAX_SCANNER_CODE_LENGTH)
+        {
+            palabra += static_cast<char>(letra);
+        }
+        else
+        {
+            scannerInputOverflow = true;
+            palabra = "";
+        }
     }
 }
 
@@ -809,33 +842,82 @@ void leerEscaner()
     @param   index índice de la parte que se quiere obtener
 */
 /*************************************************************************************/
-String getStringPartByNr(String data, char separator, int index)
+// Extrae un campo separado por un delimitador; se usa para interpretar el QR de Wi-Fi.
+String getStringPartByNr(const String &data, char separator, int index)
 {
-    int stringData = 0;   // variable para contar el número de la parte
-    String dataPart = ""; // variable para almacenar el texto retornado
-
-    for (int i = 0; i < data.length() - 1; i++)
-    { // recorre el texto de a una letra por vez
-
+    if (index < 0)
+    {
+        return "";
+    }
+    int stringData = 0;
+    String dataPart;
+    dataPart.reserve(data.length());
+    for (size_t i = 0; i < data.length(); i++)
+    {
         if (data[i] == separator)
         {
-            // Cuenta el número de veces que aparece el separador en el texto
+            if (stringData == index)
+            {
+                return dataPart;
+            }
             stringData++;
         }
         else if (stringData == index)
         {
-            // Obtiene el texto cuando el separador es el correcto
             dataPart.concat(data[i]);
         }
-        else if (stringData > index)
+    }
+    return stringData == index ? dataPart : String();
+}
+
+bool copiarTextoSeguro(char *destino, size_t capacidad, const char *origen)
+{
+    // Copia incluyendo el NUL final solo si el texto completo cabe; así se evita
+    // truncar valores del servidor y dejar cadenas sin terminador.
+    if (destino == nullptr || origen == nullptr || capacidad == 0)
+    {
+        return false;
+    }
+    const size_t longitud = strlen(origen);
+    if (longitud >= capacidad)
+    {
+        return false;
+    }
+    memcpy(destino, origen, longitud + 1);
+    return true;
+}
+
+String codificarValorFormulario(const String &valor, bool conservarSeparadores)
+{
+    // Codifica bytes según application/x-www-form-urlencoded: espacio como '+',
+    // el resto de bytes reservados como %HH. Solo el parámetro histórico `c`
+    // solicita conservar '&' y '=' para representar subcampos del formulario.
+    static const char hex[] = "0123456789ABCDEF";
+    String codificado;
+    codificado.reserve(valor.length() * 3);
+    for (size_t i = 0; i < valor.length(); ++i)
+    {
+        const uint8_t byteValor = static_cast<uint8_t>(valor[i]);
+        if ((byteValor >= 'a' && byteValor <= 'z') ||
+            (byteValor >= 'A' && byteValor <= 'Z') ||
+            (byteValor >= '0' && byteValor <= '9') ||
+            byteValor == '-' || byteValor == '_' || byteValor == '.' || byteValor == '*' ||
+            (conservarSeparadores && (byteValor == '&' || byteValor == '=')))
         {
-            // retorna el texto y se detiene ya llegamos al índice buscado
-            return dataPart;
-            break;
+            codificado += static_cast<char>(byteValor);
+        }
+        else if (byteValor == ' ')
+        {
+            codificado += '+';
+        }
+        else
+        {
+            codificado += '%';
+            codificado += hex[byteValor >> 4];
+            codificado += hex[byteValor & 0x0F];
         }
     }
-    // retorna el texto si es la última parte
-    return dataPart;
+    return codificado;
 }
 
 /**************************************************************************************/
@@ -845,60 +927,130 @@ String getStringPartByNr(String data, char separator, int index)
     @return  retorna string con la información recibida del servidor
 */
 /*************************************************************************************/
+// Envía los datos de la terminal por POST y ejecuta los comandos de pantalla recibidos
+// en la respuesta JSON. También presenta un mensaje cuando falla la comunicación.
 void requiereServidor(String c)
 {
 
-    int httpCode = 0;
+    // `c` contiene la acción solicitada (código escaneado o tecla); los demás campos
+    // adjuntan el estado actual de la terminal para que el servidor decida la respuesta.
     HTTPClient http;
     http.setTimeout(30000);        // tiempo de timeout en milisegundos para recibir respuesta del servidor
     http.setConnectTimeout(15000); // tiempo de timeout en milisegundos para conectarse al servidor
     String servi = "http://" + servidor + "/newfac/RD01/rd01.php";
     const char *serverName = servi.c_str();
-    http.begin(serverName);
+    if (!http.begin(serverName))
+    {
+        Serial.println("No se pudo inicializar la petición HTTP al servidor");
+        return;
+    }
 
     // If you need Node-RED/server authentication, insert user and password below
     // http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
 
     // Specify content-type header
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    // Data to send with HTTP POST
-    String rand = String(esp_random()); // número agregado para que el servidor no responda con datos viejos
-    String httpRequestData = "c=" + c + "&r=" + rand + "&estado=" + estado + "&codigo=" + codigo + "&sucursalapu=" + sucursalapu + "&mac=" + WiFi.macAddress() + "&voltaje=" + voltaje + "&RSSI=" + WiFi.RSSI() + "&ver=" + FIRM_VERSION + "&idIndice=" + idIndice + "&ubicacion=" + ubicacion;
+    // Codifica los campos de texto para que caracteres reservados no cambien la
+    // estructura application/x-www-form-urlencoded.
+    String httpRequestData;
+    httpRequestData.reserve(c.length() * 3 + strlen(sucursalapu) * 3 + strlen(ubicacion) * 3 + 160);
+    httpRequestData = "c=";
+    // c contiene una subconsulta histórica como "0&tecla=15": sus separadores deben
+    // seguir siendo visibles para que PHP reciba tecla como campo del formulario.
+    httpRequestData += codificarValorFormulario(c, true);
+    httpRequestData += "&r=" + String(esp_random());
+    httpRequestData += "&estado=" + String(estado);
+    httpRequestData += "&codigo=" + String(codigo);
+    httpRequestData += "&sucursalapu=" + codificarValorFormulario(String(sucursalapu));
+    httpRequestData += "&mac=" + WiFi.macAddress();
+    httpRequestData += "&voltaje=" + String(voltaje);
+    httpRequestData += "&RSSI=" + String(WiFi.RSSI());
+    httpRequestData += "&ver=" + String(FIRM_VERSION);
+    httpRequestData += "&idIndice=" + String(idIndice);
+    httpRequestData += "&ubicacion=" + codificarValorFormulario(String(ubicacion));
 
     Serial.println(serverName);
-    Serial.print("POST: ");
+    Serial.println("Enviando operación al servidor");
+    Serial.print("Consulta enviada: ");
     Serial.println(httpRequestData);
 
     // Send HTTP POST request
     int httpResponseCode = http.POST(httpRequestData);
-
-    // If you need an HTTP request with a content type: application/json, use the following:
-    // http.addHeader("Content-Type", "application/json");
-    // int httpResponseCode = http.POST("{\"api_key\":\"tPmAT5Ab3j7F9\",\"sensor\":\"BME280\",\"value1\":\"24.25\",\"value2\":\"49.54\",\"value3\":\"1005.14\"}");
-
-    // If you need an HTTP request with a content type: text/plain
-    // http.addHeader("Content-Type", "text/plain");
-    // int httpResponseCode = http.POST("Hello, World!");
 
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
 
     if (httpResponseCode == 200) // Si el servidor respondió ok
     {
+        // El servidor puede responder a algunas acciones con HTTP 200 y sin cuerpo.
+        // Leer primero la respuesta completa evita interpretar el stream HTTP agotado
+        // como EmptyInput y permite distinguir ese caso de un JSON malformado.
+        const int responseLength = http.getSize();
         String respuesta = http.getString();
-        Serial.println(respuesta);
-        http.end(); // libera los recursos
+        String respuestaUtil = respuesta;
+        respuestaUtil.trim();
+        const bool respuestaVacia = respuestaUtil.length() == 0;
+        http.end();
 
-        // decodifica el json --------------------------------------
-        DeserializationError error = deserializeJson(doc, respuesta);
+        if (respuestaVacia)
+        {
+            Serial.print("HTTP 200 sin comandos JSON; Content-Length: ");
+            Serial.println(responseLength);
+            Serial.print("Bytes recibidos (hex):");
+            const size_t bytesAMostrar = min(static_cast<size_t>(respuesta.length()), static_cast<size_t>(16));
+            for (size_t i = 0; i < bytesAMostrar; ++i)
+            {
+                Serial.print(' ');
+                if (static_cast<uint8_t>(respuesta[i]) < 0x10)
+                {
+                    Serial.print('0');
+                }
+                Serial.print(static_cast<uint8_t>(respuesta[i]), HEX);
+            }
+            Serial.println();
+            return;
+        }
+
+        doc.clear();
+        // El PHP genera la lista añadiendo "," tras cada comando, dejando una coma
+        // final antes de "]" que no es JSON válido; se elimina antes de parsear.
+        if (respuestaUtil.endsWith(",]"))
+        {
+            respuestaUtil.remove(respuestaUtil.length() - 2, 1);
+        }
+        DeserializationError error = deserializeJson(doc, respuestaUtil);
 
         if (error)
         {
             Serial.print("deserializeJson() failed: ");
             Serial.println(error.c_str());
+            // Mostrar el inicio del cuerpo ayuda a detectar avisos/errores PHP o HTML
+            // que el servidor antepone al JSON.
+            Serial.print("Cuerpo recibido (");
+            Serial.print(respuesta.length());
+            Serial.print(" bytes): ");
+            Serial.println(respuesta);
+            Serial.print("Hex de bytes no ASCII:");
+            for (size_t i = 0; i < respuesta.length(); ++i)
+            {
+                const uint8_t b = static_cast<uint8_t>(respuesta[i]);
+                if (b < 0x20 || b > 0x7E)
+                {
+                    Serial.printf(" [%u]=%02X", static_cast<unsigned>(i), b);
+                }
+            }
+            Serial.println();
+            return;
         }
 
+        // El servidor responde con una lista de instrucciones que actualiza la UI y
+        // ciertos datos de estado que se enviarán en la siguiente petición.
         JsonArray arr = doc.as<JsonArray>();
+        if (arr.isNull())
+        {
+            Serial.println("La respuesta del servidor no es una lista de comandos");
+            return;
+        }
         ejecutaComandos(arr);
     }
     else
@@ -907,7 +1059,7 @@ void requiereServidor(String c)
         Serial.println(httpResponseCode);
         http.end();
 
-        // mostrar en pantalla el c�digo de respuesta del servidor
+        // mostrar en pantalla el código de respuesta del servidor
         display.fillScreen(BLACK);
         display.setCursor(0, 50);
         display.setFont(u8g2_font_maniac_te);
@@ -918,7 +1070,7 @@ void requiereServidor(String c)
         display.println(httpResponseCode);
         display.println();
 
-        if (httpResponseCode == -11)
+        if (httpResponseCode == -11 && estado != 200)
         {
             display.setTextColor(WHITE);
             display.println("EL SERVIDOR TARDA");
@@ -963,6 +1115,12 @@ void requiereServidor(String c)
 
 void ejecutaComandos(JsonArray arr)
 {
+    // Cada elemento es [comando, argumento...]. El número de comando es parte del
+    // protocolo con rd01.php:
+    //  1-10: dibujo/texto/estado; 11-12: código de producto y lector;
+    // 13-18: controles gráficos, sucursal y teclado numérico;
+    // 19-21: índice, ubicación y botón de cancelar.
+    // Mantener el orden y significado de los argumentos en sincronía con el servidor.
     int count = arr.size();
     Serial.print("longitud de arr ");
     Serial.println(count);
@@ -977,15 +1135,18 @@ void ejecutaComandos(JsonArray arr)
 
         switch (com)
         {
+        // 1: rectángulo redondeado (x, y, ancho, alto, radio, color).
         case 1:
             display.fillRoundRect(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5], arr[i][6]);
             break;
 
         case 2:
+            // 2: posición del cursor de texto (x, y).
             display.setCursor(arr[i][1], arr[i][2]);
             break;
 
         case 3:
+            // 3: fuente seleccionada por índice; los índices no reconocidos no cambian la fuente.
             tipografia = arr[i][1];
 
             if (tipografia == 2)
@@ -1019,40 +1180,62 @@ void ejecutaComandos(JsonArray arr)
             break;
 
         case 4:
+            // 4: escala del texto.
             display.setTextSize(arr[i][1]);
             break;
 
         case 5:
+            // 5: color de texto.
             display.setTextColor(arr[i][1]);
             break;
 
         case 6:
+            // 6: imprime texto sin salto de línea.
             texto = arr[i][1];
-            display.print(texto);
+            if (texto != nullptr)
+            {
+                display.print(texto);
+            }
+            else
+            {
+                Serial.println("Comando de texto sin contenido");
+            }
             break;
 
         case 7:
+            // 7: limpia toda la pantalla con el color indicado.
             display.fillScreen(arr[i][1]);
             break;
 
         case 8:
+            // 8: dibuja teclado con columnas, filas, color y modo de relleno.
             dibujaTeclado((char)arr[i][1].as<int>(), (char)arr[i][2].as<int>(), arr[i][3].as<uint>(), arr[i][4].as<bool>());
             break;
 
         case 9:
+            // 9: actualiza el estado que se adjuntará a las siguientes peticiones.
             estado = arr[i][1];
             break;
 
         case 10:
+            // 10: imprime texto y termina la línea.
             texto = arr[i][1];
-            display.println(texto);
+            if (texto != nullptr)
+            {
+                display.println(texto);
+            }
+            else
+            {
+                Serial.println("Comando de línea sin contenido");
+            }
             break;
 
+        // 11: código de producto que acompañará la siguiente petición.
         case 11: // código del producto leido por el escaner
             codigo = arr[i][1];
             break;
 
-        case 12: // habilitación escaner 0 = deshabilita 1 = habilita
+        case 12: // Control del escáner: 1 habilita; cualquier otro valor lo deshabilita.
 
             habi = arr[i][1];
             Serial.print("escaner: ");
@@ -1068,41 +1251,47 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 13: // dibuja la tecla listo
+        case 13: // Dibuja botón de confirmación en (x, y).
             teclaListo(arr[i][1], arr[i][2]);
             break;
 
-        case 14: // dibuja la tecla basura
+        case 14: // Dibuja botón de borrar en (x, y).
             teclaBasura(arr[i][1], arr[i][2]);
             break;
 
-        case 15: // sucursal en la que se encuentra el terminal
-            texto = arr[i][1];
-            strcpy(sucursalapu, texto);
+        case 15: // Actualiza sucursal; el texto debe caber en sucursalapu.
+            texto = arr[i][1].as<const char *>();
+            if (!copiarTextoSeguro(sucursalapu, sizeof(sucursalapu), texto))
+            {
+                Serial.println("Nombre de sucursal inválido o demasiado largo");
+            }
             break;
 
-        case 16: // dibuja arco lleno
+        case 16: // Dibuja arco relleno (centro, radios, ángulos y color).
             display.fillArc(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5], arr[i][6], arr[i][7]);
             break;
 
-        case 17: // dibuja linea recta
+        case 17: // Dibuja línea (x1, y1, x2, y2, color).
             display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
             break;
 
-        case 18: // tecladoNumerico
+        case 18: // Abre captura numérica con código, máximo permitido y origen.
             tecladoNumerico(arr[i][1], arr[i][2], arr[i][3], arr[i][4]);
             break;
 
-        case 19: // idIndice de la tabla transito_entrepiso
+        case 19: // Identificador de origen/registro para la siguiente operación.
             idIndice = arr[i][1];
             break;
 
-        case 20: // ubicacion del producto
-            texto = arr[i][1];
-            strcpy(ubicacion, texto);
+        case 20: // Actualiza ubicación; el texto debe caber en ubicacion.
+            texto = arr[i][1].as<const char *>();
+            if (!copiarTextoSeguro(ubicacion, sizeof(ubicacion), texto))
+            {
+                Serial.println("Ubicación inválida o demasiado larga");
+            }
             break;
 
-        case 21: // dibuja la tecla cancelar
+        case 21: // Dibuja botón de cancelar/suspender en (x, y).
             teclaSuspender(arr[i][1], arr[i][2]);
             break;
 
@@ -1110,6 +1299,7 @@ void ejecutaComandos(JsonArray arr)
             break;
         }
     }
+    // La tecla de apagado se mantiene visible después de cada lote de instrucciones.
     teclaApagado();
 }
 
@@ -1122,6 +1312,7 @@ void ejecutaComandos(JsonArray arr)
 /***************************************************************************************/
 void teclaApagado(int posx, int posy)
 {
+    // Construye el botón de encendido/apagado alrededor del centro indicado.
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, RED);
     display.fillArc(posx, posy, 25, 15, 320, 220, WHITE);
     display.fillRect(posx - 5, posy - 25, 11, 30, WHITE);
@@ -1129,6 +1320,7 @@ void teclaApagado(int posx, int posy)
 
 void teclaListo(int posx, int posy)
 {
+    // Botón verde con marca de confirmación.
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, GREEN);
     display.fillArc(posx + 80, posy + 40, 87, 80, 190, 230, WHITE);
     display.fillArc(posx - 85, posy + 25, 85, 78, 340, 0, WHITE);
@@ -1137,7 +1329,7 @@ void teclaListo(int posx, int posy)
 
 void teclaSuspender(int posx, int posy)
 {
-
+    // Botón naranja de cancelación/suspensión, usado cuando lo solicita el servidor.
     display.fillRoundRect(posx - 37, posy - 42, 73, 92, 10, ORANGE);
     display.fillRoundRect(posx - 20, posy - 2, 10, 10, 5, BLACK);
     display.fillRoundRect(posx - 6, posy - 2, 10, 10, 5, BLACK);
@@ -1148,6 +1340,7 @@ void teclaSuspender(int posx, int posy)
 
 void teclaBasura(int posx, int posy)
 {
+    // Botón de borrado del teclado numérico.
     display.fillRoundRect(posx, posy, 73, 92, 10, RED);
     display.fillRoundRect(posx + 15, posy + 16, 43, 60, 8, WHITE);
     display.fillRoundRect(posx + 12, posy + 16, 48, 10, 0, RED);
@@ -1159,6 +1352,7 @@ void teclaBasura(int posx, int posy)
 
 void panFondo()
 {
+    // Actualiza los indicadores de red, servidor, versión, batería y tiempo encendido.
     // logo wifi
     int posx = 275;
     int posy = 15;
@@ -1176,8 +1370,8 @@ void panFondo()
         display.drawLine(posx + 7, posy - 10, posx + 13, posy - 10, WHITE);
         display.drawLine(posx + 7, posy - 9, posx + 13, posy - 9, WHITE);
 
-        // RECONECTAR wifi
-        conectarWiFi();
+        // La reconexión no se inicia desde el repintado; gestionarWiFi() la supervisa
+        // con un intervalo para mantener el ciclo de interfaz disponible.
     }
     else
     {
@@ -1225,12 +1419,13 @@ void panFondo()
     display.setCursor(240, 18);
     display.print(WiFi.RSSI());
 
-    // medir voltaje de la bater�a
+    // medir voltaje de la batería
     int sumVolts = 0;
     for (size_t a = 0; a < 10; a++)
     {
         sumVolts += analogReadMilliVolts(VOLTAJE);
     }
+    // Promedia diez lecturas ADC en milivoltios y aplica el factor del divisor resistivo.
     int volt2 = round(1.754 * sumVolts / 100);
     voltaje = volt2;
     int color = WHITE;
@@ -1326,6 +1521,7 @@ void panFondo()
     display.setCursor(155, 18);
     display.print(esp_timer_get_time() / 1000000 - tiempo_encendido);
 
+    // APAGADO es el umbral de inactividad; el toque actualiza tiempo_encendido.
     if ((esp_timer_get_time() / 1000000 - tiempo_encendido) > APAGADO)
     {
         Serial.println("apagando por tiempo inactivo");
@@ -1336,6 +1532,7 @@ void panFondo()
 
 void apagando()
 {
+    // Presenta las opciones de apagar, mantener encendida la terminal o configurar la red.
     // limpiar fondo
     display.fillRect(0, 30, 319, 479, BLACK);
 
@@ -1380,27 +1577,25 @@ void apagando()
     estado = APAGANDO;
 }
 
-// habilita el escaner, pone la variable p�blica escaner en true
+// Habilita el escáner con su comando UART y marca el estado local como activo.
 void escanerOn()
 {
 
     byte buf88[] = {0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F}; // SCAN_ENABLE
     byte largo8 = sizeof(buf88);
-    enviaComando(buf88, largo8);
-    escaner = true;
+    enviaComando(buf88, largo8, 1); // un solo intento para no bloquear la UI
 }
 
-// Deshabilita el escaner y pone la variable p�blica escaner en false
+// Deshabilita el escáner con su comando UART y marca el estado local como inactivo.
 void escanerOff()
 {
 
     byte buf6[] = {0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E}; // SCAN_DISABLE
     byte largo = sizeof(buf6);
-    enviaComando(buf6, largo);
-    escaner = false;
+    enviaComando(buf6, largo, 1); // un solo intento para no bloquear la UI
 }
 
-// Inicializa el escaner
+// Restablece el lector y configura inducción automática, terminador CR y lectura activa.
 void configEscaner()
 {
     Serial.println("configurando escaner");
@@ -1448,7 +1643,9 @@ void configEscaner()
     @return  true si hubo ACK, false si no
 */
 /*************************************************************************************/
-bool enviaComando(byte com[], int largo)
+// Envía primero el byte de activación y reintenta el comando hasta reconocer ACK,
+// respuesta de versión o agotar cinco esperas de 500 ticks.
+bool enviaComando(byte com[], int largo, byte maxIntentos)
 {
     byte buf[] = {0x00}; // Wake up
     Serial2.write(buf, sizeof(buf));
@@ -1458,34 +1655,57 @@ bool enviaComando(byte com[], int largo)
     bool ack = false;
     String recibido = "";
 
-    while (intentos < 5 && !ack)
+    while (intentos < maxIntentos && !ack)
     {
-        Serial2.write(com, largo);            // envía el comando al escaner
-        uint32_t start = xTaskGetTickCount(); // registra el inicio del tiempo para ver si se produce timeout
-
-        while (!Serial2.available() && ((xTaskGetTickCount() - start) < 500)) // espera que llegue la respuesta del escaner
+        // Descarta restos de respuestas anteriores para no desfasar la lectura del ACK.
+        while (Serial2.available() > 0)
         {
+            Serial2.read();
+        }
+        Serial2.write(com, largo);            // envía el comando al escaner
+        const uint32_t start = millis();
+
+        // Cede tiempo al planificador mientras espera el ACK para no ocupar CPU en vacío.
+        while (!Serial2.available() && static_cast<uint32_t>(millis() - start) < 500)
+        {
+            delay(1);
         }
 
-        if ((xTaskGetTickCount() - start) < 500) // si no hubo timeout
+        if (static_cast<uint32_t>(millis() - start) < 500)
         {
+            // La respuesta llega fragmentada: se acumula hasta 20 ms sin bytes nuevos.
             recibido = "";
-            while (Serial2.available() && ((xTaskGetTickCount() - start) < 500)) // lee el comando recibido
+            uint32_t ultimoByte = millis();
+            while (static_cast<uint32_t>(millis() - ultimoByte) < 20 &&
+                   static_cast<uint32_t>(millis() - start) < 500)
             {
-                letra = Serial2.read();
-                recibido += letra;
+                if (Serial2.available())
+                {
+                    letra = Serial2.read();
+                    ultimoByte = millis();
+                    if (recibido.length() < 64)
+                    {
+                        recibido += letra; // cada byte se agrega en decimal: ACK = "42080025544"
+                    }
+                }
+                else
+                {
+                    delay(1);
+                }
             }
 
-            if ((xTaskGetTickCount() - start) < 500) // si no hubo timeout
+            if (static_cast<uint32_t>(millis() - start) < 500)
             {
-                Serial.println(recibido);
-
-                if (recibido == "42080025544" || recibido.substring(0, 10) == "8716400801") // llegó ack o versión
+                const bool ackRecibido = recibido.indexOf("42080025544") >= 0;
+                const bool versionRecibida = recibido.startsWith("8716400801");
+                if (ackRecibido || versionRecibida)
                 {
+                    Serial.println(ackRecibido ? "ACK" : "Respuesta de versión del lector");
                     ack = true;
                 }
                 else
                 {
+                    Serial.println(recibido);
                     Serial.println("ACK MAL");
                     ack = false;
                     intentos += 1;
@@ -1518,6 +1738,8 @@ bool enviaComando(byte com[], int largo)
     @return  nada
 */
 /*************************************************************************************/
+// Inicializa el modo de captura de cantidades y dibuja sus controles; el servidor
+// proporciona el máximo permitido y el origen asociado a la operación.
 void tecladoNumerico(int codigo, int max, int origen, int aux4)
 {
     cantidad = 0;
