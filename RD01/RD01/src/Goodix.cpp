@@ -40,7 +40,7 @@ bool Goodix::begin(uint8_t interruptPin, uint8_t resetPin, uint8_t addr) {
   rstPin = resetPin;
   i2cAddr = addr;
 
-  // Take chip some time to start
+  // El controlador necesita estabilizarse antes y después de la secuencia de reset.
   msSleep(300);
   bool result = reset();
   msSleep(200);
@@ -87,10 +87,7 @@ bool Goodix::reset() {
   return true;
 }
 
-/**
-   Read goodix touchscreen version
-   set 4 chars + zero productID to target
-*/
+// Lee cuatro caracteres de identificación y añade el terminador NUL en el buffer destino.
 uint8_t Goodix::productID(char *target) {
   // Lee una sola vez el bloque y copia el ID en el buffer del llamador.
   if (target == nullptr || readInfo() == nullptr) {
@@ -102,17 +99,16 @@ uint8_t Goodix::productID(char *target) {
   return 0;
 }
 
-/**
-   goodix_i2c_test - I2C test function to check if the device answers.
-*/
+// Comprueba que el sensor responde leyendo un byte de configuración por I2C.
 uint8_t Goodix::test() {
   // Lee un byte del bloque de configuración para comprobar la comunicación I2C.
   uint8_t testByte;
   return readBytes(GOODIX_REG_CONFIG_DATA,  &testByte, 1);
 }
 
-uint8_t Goodix::calcChecksum(uint8_t* buf, uint8_t len) {
-  // El checksum Goodix es el complemento a dos de la suma de los bytes del bloque.
+uint8_t Goodix::calcChecksum(const uint8_t* buf, uint8_t len) {
+  // El complemento a dos hace que la suma del bloque más este byte resulte cero
+  // módulo 256, como espera el controlador Goodix.
   uint8_t ccsum = 0;
   for (uint8_t i = 0; i < len; i++) {
     ccsum += buf[i];
@@ -340,7 +336,7 @@ bool Goodix::write(uint16_t reg, uint8_t buf) {
   return accepted && result == 0;
 }
 
-bool Goodix::writeBytes(uint16_t reg, uint8_t *data, int nbytes)
+bool Goodix::writeBytes(uint16_t reg, const uint8_t *data, int nbytes)
 {
 	// Escribe de forma contigua un bloque en el registro indicado.
 	if (data == nullptr || nbytes <= 0 ||

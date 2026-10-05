@@ -1,7 +1,7 @@
 #include "metodos.h"
 
-// Punto de entrada Arduino. setup() prepara los periféricos, la red y los servicios;
-// loop() mantiene atendidos el panel táctil y el puerto serie del lector.
+// Punto de entrada Arduino. setup() prepara los periféricos y servicios; loop()
+// atiende el panel táctil, el UART del lector y la supervisión de la conexión Wi-Fi.
 void setup()
 {
   // Mantiene activa la alimentación externa del recolector desde el pin de control.

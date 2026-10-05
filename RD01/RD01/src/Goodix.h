@@ -52,7 +52,8 @@ class Goodix {
     // Registra el callback que recibe la cantidad de contactos y el arreglo de puntos.
     void setHandler(void (*handler)(int8_t, GTPoint*));
 
-    // Inicializa pines, dirección y secuencia de reset. loop() procesa después las
+    // Guarda pines/dirección y ejecuta la secuencia de reset; el retorno confirma la
+    // secuencia, no una prueba posterior de comunicación I2C. loop() procesa luego
     // interrupciones pendientes y entrega contactos mediante el callback registrado.
     bool begin(uint8_t interruptPin, uint8_t resetPin, uint8_t addr=GOODIX_I2C_ADDR_BA);
     // Ejecuta la secuencia eléctrica de reset para seleccionar dirección e iniciar sensor.
@@ -62,19 +63,26 @@ class Goodix {
     // Procesa fuera de la ISR la lectura del informe táctil pendiente.
     void loop();
 
-    // Acceso genérico a registros por I2C; true indica que la transferencia terminó bien.
+    // Acceso genérico a registros I2C. Las lecturas/escrituras por bloque pueden dividirse
+    // en transacciones limitadas por el tamaño del buffer I2C de la plataforma.
+    // true indica que se transfirieron todos los bytes solicitados.
     bool write(uint16_t reg, uint8_t value);
-    bool writeBytes(uint16_t reg, uint8_t *data, int nbytes);
+    bool writeBytes(uint16_t reg, const uint8_t *data, int nbytes);
     bool readBytes(uint16_t reg, uint8_t *data, int nbytes);
 
     // Utilidades para leer, comprobar o actualizar el bloque de configuración Goodix.
-    uint8_t calcChecksum(uint8_t* buf, uint8_t len);
+    // calcChecksum calcula el complemento a dos de la suma de `len` bytes.
+    // readChecksum devuelve el checksum calculado; cero también puede señalar un fallo I2C.
+    uint8_t calcChecksum(const uint8_t* buf, uint8_t len);
     uint8_t readChecksum();
 
-    // Actualiza resolución/configuración y su checksum en el controlador.
+    // fwResolution actualiza resolución y checksum; configUpdate escribe LilyPi_config
+    // solo en los controladores cuyo product ID comienza por '9'.
     void fwResolution(uint16_t maxX, uint16_t maxY);
     void configUpdate();
-    uint8_t configCheck(bool isLilyPi);
+    // Retorna cero si la verificación pasa; compareLilyPiConfig=true compara también el perfil.
+    // Un ID de producto que no comienza por '9' se devuelve como su primer byte.
+    uint8_t configCheck(bool compareLilyPiConfig);
     
     // Lectura de identificación, configuración e informe bruto de contactos.
     GTConfig* readConfig();
@@ -83,7 +91,8 @@ class Goodix {
     // Escribe cuatro caracteres de ID y un terminador NUL en un buffer de al menos 5 bytes.
     uint8_t productID(char *buf);
 
-    // Lee el informe; los valores negativos señalan error I2C o informe aún no disponible.
+    // Lee hasta GOODIX_MAX_CONTACTS contactos. Retorna -100 si aún no hay informe,
+    // -155 si falla I2C, o el número de contactos (0..GOODIX_MAX_CONTACTS).
     int16_t readInput(uint8_t *data);
 
   //--- Private routines ---

@@ -17,10 +17,10 @@
  *
  * Para actualizar el firmware:
  * Colocar el número correspondiente a la nueva versión de firmware en FIRM_VERSION
- * Compilar el programa y subir al servidor el archivo firmware.bin con el nombre
+ * Compilar el programa y subir al servidor en newfac/RD01/ el archivo firmware.bin con el nombre
  * firm(version).bin ejemplo: firm25.bin que se encuentra en
  * .pio\build\esp32doit-devkit-v1/firmware.bin
- * Modificar el archivo firm.json del servidor, cambiando el valor de version por la nueva versión
+ * Modificar el archivo firm.json en la misma carpeta del servidor, cambiando el valor de version por la nueva versión
  * El firmware se actualizará automáticamente al encender la terminal
  *****************************************************************************************/
 
@@ -75,7 +75,6 @@ Preferences preferences; // objeto que maneja el almacenamiento en flash de los 
 DynamicJsonDocument doc(16384);
 Goodix touch = Goodix();
 uint32_t tiempoUltNum = xTaskGetTickCount(); // registra el momento en que se tocó el último número
-String visor = "";
 // El display se comunica por SPI; la clase Goodix usa Wire/I2C para el panel táctil.
 Arduino_ESP32SPI bus = Arduino_ESP32SPI(display_DC, display_CS, display_SCK, display_MOSI, display_MISO); // objeto que maneja la conexión SPI con el display
 Arduino_ILI9488_18bit display = Arduino_ILI9488_18bit(&bus, display_RESET, 0, false);                     // objeto que maneja el display ILI9488
@@ -84,17 +83,16 @@ String ssid{""};
 String password{""};
 String palabra{""};
 byte letra{0};
-bool scannerInputOverflow = false;
-bool wifiStarted = false;
-bool wifiConnectionHandled = false;
-bool firmwareCheckDone = false;
+bool scannerInputOverflow = false; // El código actual excedió el límite y se descarta al recibir CR.
+bool wifiStarted = false;          // Evita reintentos si todavía no hay credenciales configuradas.
+bool wifiConnectionHandled = false; // Impide repetir las acciones asociadas a una conexión establecida.
+bool firmwareCheckDone = false;    // Limita la comprobación OTA a una vez por arranque.
 uint32_t lastWiFiReconnectAttempt = 0;
 byte estado = 0;     // estado en el que se encuentra el recolector de datos
 int codigo = 0;      // código del producto leido por el escaner
 char ubicacion[100]; // ubicacion leida del producto para el inventario
 int idIndice = 0;    // idIndice de la tabla transito_entrepiso u origen del llamado al teclado
 int tiempo_encendido = 0;
-bool escaner = true;             // escaner leyendo o no
 char sucursalapu[20] = "inicio"; // si se encuentra en ventas o entrepiso en el apumanque
 int voltaje = 0;                 // voltaje de la batería
 int cantidad = 0;                // cantidad escrita en el teclado numérico
@@ -268,6 +266,8 @@ void handleTouch(int8_t contacts, GTPoint *points)
     tiempoUltNum = tiempoNum;
 }
 
+// Inicializa el digitalizador y deja en el puerto serie el resultado del ACK I2C
+// y de la comprobación de compatibilidad/checksum de su configuración.
 void touchStart()
 {
     unsigned short configInfo;
@@ -364,12 +364,14 @@ void teclado(int tecla)
             Serial.println(cantidad);
             if (cantidad == 753064) // clave correcta cambia al servidor 101.64 (pruebas)
             {
+                Serial.println("cambiando al servidor 101.64");
                 preferences.begin("credenciales", false);
                 preferences.putString("servidor", "192.168.101.64");
                 preferences.end();
             }
             else if (cantidad == 753003) // clave correcta cambia al servidor 2.3 (apumanque)
             {
+                Serial.println("cambiando al servidor 2.3");
                 preferences.begin("credenciales", false);
                 preferences.putString("servidor", "192.168.2.3");
                 preferences.end();
@@ -559,7 +561,8 @@ void gestionarWiFi()
 
 void cambiarSsid(String ssid, String password)
 {
-    // Reemplaza las credenciales guardadas y vuelve a iniciar la conexión.
+    // Reemplaza las credenciales guardadas y vuelve a iniciar la conexión; el lector
+    // se reactiva al terminar para que el usuario pueda volver a escanear códigos.
     preferences.begin("credenciales", false);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
@@ -569,18 +572,10 @@ void cambiarSsid(String ssid, String password)
     escanerOn();
 }
 
-/***************************************************************************************/
-/*!
-    @brief   Dibuja el teclado en la pantalla
-    @param   botx cantidad de botones en la horizontal
-    @param   boty cantidad de botones en la vertical
-    @param   s separación horizontal entre botones
-    @param   v separación vertical entre botones
-    @param   color color del botón 16-bit 5-6-5
-    @param   fondo fondo del botón vacío = false o lleno = true
-*/
-/***************************************************************************************/
-// Calcula el tamaño de las teclas para repartir una cuadrícula centrada en el display.
+/**
+ * Dibuja una cuadrícula centrada en el display. `fondo` elige entre botones rellenos
+ * y contornos; la aplicación usa normalmente cuatro columnas y cuatro filas.
+ */
 void dibujaTeclado(char botx = 4, char boty = 4, uint color = GREEN, bool fondo = false)
 {
     int16_t ancho = 320;
@@ -713,12 +708,8 @@ int tocoPantalla(uint16_t x, uint16_t y)
     return numero;
 }
 
-/***************************************************************************************/
-/*!
-    @brief   Dibuja la pantalla número 1
-*/
-/***************************************************************************************/
-// Dibuja los dígitos y las teclas de acción sobre la cuadrícula numérica.
+// Dibuja el teclado numérico en el orden visual 7-8-9, 4-5-6, 1-2-3, 0;
+// los botones de confirmar y borrar ocupan las posiciones de acción de la cuadrícula.
 void poneNumeros()
 {
 
@@ -881,6 +872,8 @@ String getStringPartByNr(const String &data, char separator, int index)
 
 bool copiarTextoSeguro(char *destino, size_t capacidad, const char *origen)
 {
+    // Copia incluyendo el NUL final solo si el texto completo cabe; así se evita
+    // truncar valores del servidor y dejar cadenas sin terminador.
     if (destino == nullptr || origen == nullptr || capacidad == 0)
     {
         return false;
@@ -896,6 +889,9 @@ bool copiarTextoSeguro(char *destino, size_t capacidad, const char *origen)
 
 String codificarValorFormulario(const String &valor, bool conservarSeparadores)
 {
+    // Codifica bytes según application/x-www-form-urlencoded: espacio como '+',
+    // el resto de bytes reservados como %HH. Solo el parámetro histórico `c`
+    // solicita conservar '&' y '=' para representar subcampos del formulario.
     static const char hex[] = "0123456789ABCDEF";
     String codificado;
     codificado.reserve(valor.length() * 3);
@@ -936,6 +932,8 @@ String codificarValorFormulario(const String &valor, bool conservarSeparadores)
 void requiereServidor(String c)
 {
 
+    // `c` contiene la acción solicitada (código escaneado o tecla); los demás campos
+    // adjuntan el estado actual de la terminal para que el servidor decida la respuesta.
     HTTPClient http;
     http.setTimeout(30000);        // tiempo de timeout en milisegundos para recibir respuesta del servidor
     http.setConnectTimeout(15000); // tiempo de timeout en milisegundos para conectarse al servidor
@@ -973,6 +971,8 @@ void requiereServidor(String c)
 
     Serial.println(serverName);
     Serial.println("Enviando operación al servidor");
+    Serial.print("Consulta enviada: ");
+    Serial.println(httpRequestData);
 
     // Send HTTP POST request
     int httpResponseCode = http.POST(httpRequestData);
@@ -1115,8 +1115,12 @@ void requiereServidor(String c)
 
 void ejecutaComandos(JsonArray arr)
 {
-    // Cada elemento es un arreglo cuyo primer valor identifica una operación y los
-    // siguientes valores son sus argumentos. Los casos forman el protocolo UI servidor.
+    // Cada elemento es [comando, argumento...]. El número de comando es parte del
+    // protocolo con rd01.php:
+    //  1-10: dibujo/texto/estado; 11-12: código de producto y lector;
+    // 13-18: controles gráficos, sucursal y teclado numérico;
+    // 19-21: índice, ubicación y botón de cancelar.
+    // Mantener el orden y significado de los argumentos en sincronía con el servidor.
     int count = arr.size();
     Serial.print("longitud de arr ");
     Serial.println(count);
@@ -1131,16 +1135,18 @@ void ejecutaComandos(JsonArray arr)
 
         switch (com)
         {
-        // Las operaciones 1..10 dibujan la interfaz o cambian el estado de la terminal.
+        // 1: rectángulo redondeado (x, y, ancho, alto, radio, color).
         case 1:
             display.fillRoundRect(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5], arr[i][6]);
             break;
 
         case 2:
+            // 2: posición del cursor de texto (x, y).
             display.setCursor(arr[i][1], arr[i][2]);
             break;
 
         case 3:
+            // 3: fuente seleccionada por índice; los índices no reconocidos no cambian la fuente.
             tipografia = arr[i][1];
 
             if (tipografia == 2)
@@ -1174,14 +1180,17 @@ void ejecutaComandos(JsonArray arr)
             break;
 
         case 4:
+            // 4: escala del texto.
             display.setTextSize(arr[i][1]);
             break;
 
         case 5:
+            // 5: color de texto.
             display.setTextColor(arr[i][1]);
             break;
 
         case 6:
+            // 6: imprime texto sin salto de línea.
             texto = arr[i][1];
             if (texto != nullptr)
             {
@@ -1194,18 +1203,22 @@ void ejecutaComandos(JsonArray arr)
             break;
 
         case 7:
+            // 7: limpia toda la pantalla con el color indicado.
             display.fillScreen(arr[i][1]);
             break;
 
         case 8:
+            // 8: dibuja teclado con columnas, filas, color y modo de relleno.
             dibujaTeclado((char)arr[i][1].as<int>(), (char)arr[i][2].as<int>(), arr[i][3].as<uint>(), arr[i][4].as<bool>());
             break;
 
         case 9:
+            // 9: actualiza el estado que se adjuntará a las siguientes peticiones.
             estado = arr[i][1];
             break;
 
         case 10:
+            // 10: imprime texto y termina la línea.
             texto = arr[i][1];
             if (texto != nullptr)
             {
@@ -1217,12 +1230,12 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        // Las operaciones restantes actualizan datos de negocio o dibujan controles.
+        // 11: código de producto que acompañará la siguiente petición.
         case 11: // código del producto leido por el escaner
             codigo = arr[i][1];
             break;
 
-        case 12: // habilitación escaner 0 = deshabilita 1 = habilita
+        case 12: // Control del escáner: 1 habilita; cualquier otro valor lo deshabilita.
 
             habi = arr[i][1];
             Serial.print("escaner: ");
@@ -1238,15 +1251,15 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 13: // dibuja la tecla listo
+        case 13: // Dibuja botón de confirmación en (x, y).
             teclaListo(arr[i][1], arr[i][2]);
             break;
 
-        case 14: // dibuja la tecla basura
+        case 14: // Dibuja botón de borrar en (x, y).
             teclaBasura(arr[i][1], arr[i][2]);
             break;
 
-        case 15: // sucursal en la que se encuentra el terminal
+        case 15: // Actualiza sucursal; el texto debe caber en sucursalapu.
             texto = arr[i][1].as<const char *>();
             if (!copiarTextoSeguro(sucursalapu, sizeof(sucursalapu), texto))
             {
@@ -1254,23 +1267,23 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 16: // dibuja arco lleno
+        case 16: // Dibuja arco relleno (centro, radios, ángulos y color).
             display.fillArc(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5], arr[i][6], arr[i][7]);
             break;
 
-        case 17: // dibuja linea recta
+        case 17: // Dibuja línea (x1, y1, x2, y2, color).
             display.drawLine(arr[i][1], arr[i][2], arr[i][3], arr[i][4], arr[i][5]);
             break;
 
-        case 18: // tecladoNumerico
+        case 18: // Abre captura numérica con código, máximo permitido y origen.
             tecladoNumerico(arr[i][1], arr[i][2], arr[i][3], arr[i][4]);
             break;
 
-        case 19: // idIndice de la tabla transito_entrepiso
+        case 19: // Identificador de origen/registro para la siguiente operación.
             idIndice = arr[i][1];
             break;
 
-        case 20: // ubicacion del producto
+        case 20: // Actualiza ubicación; el texto debe caber en ubicacion.
             texto = arr[i][1].as<const char *>();
             if (!copiarTextoSeguro(ubicacion, sizeof(ubicacion), texto))
             {
@@ -1278,7 +1291,7 @@ void ejecutaComandos(JsonArray arr)
             }
             break;
 
-        case 21: // dibuja la tecla cancelar
+        case 21: // Dibuja botón de cancelar/suspender en (x, y).
             teclaSuspender(arr[i][1], arr[i][2]);
             break;
 
@@ -1571,7 +1584,6 @@ void escanerOn()
     byte buf88[] = {0x04, 0xE9, 0x04, 0x00, 0xFF, 0x0F}; // SCAN_ENABLE
     byte largo8 = sizeof(buf88);
     enviaComando(buf88, largo8, 1); // un solo intento para no bloquear la UI
-    escaner = true;
 }
 
 // Deshabilita el escáner con su comando UART y marca el estado local como inactivo.
@@ -1581,7 +1593,6 @@ void escanerOff()
     byte buf6[] = {0x04, 0xEA, 0x04, 0x00, 0xFF, 0x0E}; // SCAN_DISABLE
     byte largo = sizeof(buf6);
     enviaComando(buf6, largo, 1); // un solo intento para no bloquear la UI
-    escaner = false;
 }
 
 // Restablece el lector y configura inducción automática, terminador CR y lectura activa.
@@ -1685,14 +1696,16 @@ bool enviaComando(byte com[], int largo, byte maxIntentos)
 
             if (static_cast<uint32_t>(millis() - start) < 500)
             {
-                Serial.println(recibido);
-
-                if (recibido.indexOf("42080025544") >= 0 || recibido.startsWith("8716400801")) // llegó ack o versión
+                const bool ackRecibido = recibido.indexOf("42080025544") >= 0;
+                const bool versionRecibida = recibido.startsWith("8716400801");
+                if (ackRecibido || versionRecibida)
                 {
+                    Serial.println(ackRecibido ? "ACK" : "Respuesta de versión del lector");
                     ack = true;
                 }
                 else
                 {
+                    Serial.println(recibido);
                     Serial.println("ACK MAL");
                     ack = false;
                     intentos += 1;
